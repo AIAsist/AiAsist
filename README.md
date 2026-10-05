@@ -88,6 +88,18 @@
 > В изолированной облачной среде без доступа к `dl.google.com` сборка невозможна — проект
 > рассчитан на локальную сборку в Android Studio.
 
+## Сборка в GitHub Actions (готовый APK без локального SDK)
+
+В репозитории настроен workflow `.github/workflows/build-apk.yml`: при каждом push (и вручную через
+*Actions → Build APK → Run workflow*) GitHub собирает debug-APK и прикладывает его как артефакт.
+
+- Скачать APK: вкладка **Actions** → последний запуск **Build APK** → раздел **Artifacts** →
+  `aiasist-debug-apk`.
+- Релиз: пуш тега вида `v1.0.0` дополнительно публикует APK в **Releases**.
+
+Debug-APK подписан отладочным ключом и устанавливается на телефон напрямую (нужно разрешить
+установку из неизвестных источников).
+
 ## Настройка
 
 1. Получите ключ API в консоли Anthropic: https://console.anthropic.com/
