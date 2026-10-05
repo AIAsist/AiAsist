@@ -1,0 +1,37 @@
+<resources>
+    <string name="app_name">ИИ-Ассистент</string>
+
+    <!-- Main screen -->
+    <string name="tap_to_speak">Нажмите, чтобы говорить</string>
+    <string name="listening">Слушаю…</string>
+    <string name="thinking">Думаю…</string>
+    <string name="speaking">Отвечаю…</string>
+    <string name="greeting">Привет! Я ваш голосовой помощник. Нажмите на микрофон и скажите, что нужно сделать.</string>
+    <string name="settings">Настройки</string>
+    <string name="mic_content_desc">Микрофон</string>
+    <string name="stop">Стоп</string>
+
+    <!-- Settings screen -->
+    <string name="settings_title">Настройки</string>
+    <string name="api_key_label">Ключ Anthropic API</string>
+    <string name="api_key_hint">sk-ant-…</string>
+    <string name="api_key_help">Ключ хранится в зашифрованном виде на устройстве и используется только для запросов к Claude API.</string>
+    <string name="model_label">Модель</string>
+    <string name="save">Сохранить</string>
+    <string name="saved">Сохранено</string>
+    <string name="back">Назад</string>
+
+    <!-- Errors -->
+    <string name="error_no_api_key">Не задан ключ API. Откройте настройки и вставьте ключ Anthropic.</string>
+    <string name="error_no_speech">Не удалось распознать речь. Попробуйте ещё раз.</string>
+    <string name="error_mic_permission">Для голосового ввода нужно разрешение на микрофон.</string>
+
+    <!-- Wake word / voice activation -->
+    <string name="wake_word_title">Голосовая активация</string>
+    <string name="wake_word_switch">Активация голосом («%1$s»)</string>
+    <string name="wake_word_label">Слово-активатор</string>
+    <string name="wake_word_help">Приложение будет слушать в фоне и запускаться, услышав это слово. Непрерывное распознавание заметно расходует батарею и зависит от устройства.</string>
+    <string name="wake_channel_name">Голосовая активация</string>
+    <string name="wake_notif_title">Ассистент слушает</string>
+    <string name="wake_notif_text">Скажите «%1$s», чтобы начать</string>
+</resources>
