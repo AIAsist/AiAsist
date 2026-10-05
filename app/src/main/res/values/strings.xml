@@ -25,4 +25,13 @@
     <string name="error_no_api_key">Не задан ключ API. Откройте настройки и вставьте ключ Anthropic.</string>
     <string name="error_no_speech">Не удалось распознать речь. Попробуйте ещё раз.</string>
     <string name="error_mic_permission">Для голосового ввода нужно разрешение на микрофон.</string>
+
+    <!-- Wake word / voice activation -->
+    <string name="wake_word_title">Голосовая активация</string>
+    <string name="wake_word_switch">Активация голосом («%1$s»)</string>
+    <string name="wake_word_label">Слово-активатор</string>
+    <string name="wake_word_help">Приложение будет слушать в фоне и запускаться, услышав это слово. Непрерывное распознавание заметно расходует батарею и зависит от устройства.</string>
+    <string name="wake_channel_name">Голосовая активация</string>
+    <string name="wake_notif_title">Ассистент слушает</string>
+    <string name="wake_notif_text">Скажите «%1$s», чтобы начать</string>
 </resources>

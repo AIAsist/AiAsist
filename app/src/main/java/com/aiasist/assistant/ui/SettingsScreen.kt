@@ -1,5 +1,12 @@
 package com.aiasist.assistant.ui
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +25,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +33,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -40,7 +49,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.ContextCompat
 import com.aiasist.assistant.data.SettingsRepository
+import com.aiasist.assistant.voice.WakeWordService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,6 +63,34 @@ fun SettingsScreen(onBack: () -> Unit) {
     var model by remember { mutableStateOf(settings.model) }
     var keyVisible by remember { mutableStateOf(false) }
     var showSaved by remember { mutableStateOf(false) }
+
+    var wakeEnabled by remember { mutableStateOf(settings.wakeWordEnabled) }
+    var wakeWord by remember { mutableStateOf(settings.wakeWord) }
+
+    fun enableWake() {
+        settings.wakeWordEnabled = true
+        wakeEnabled = true
+        WakeWordService.start(context)
+        // Needed so the service can pop the assistant to the foreground from the background.
+        if (!Settings.canDrawOverlays(context)) {
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:${context.packageName}"),
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+
+    fun disableWake() {
+        settings.wakeWordEnabled = false
+        wakeEnabled = false
+        WakeWordService.stop(context)
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> if (granted) enableWake() else wakeEnabled = false }
 
     Scaffold(
         topBar = {
@@ -123,10 +162,63 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
 
             Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+            Text("Голосовая активация", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text(
+                        "Активация голосом («$wakeWord»)",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        "Слушать в фоне и запускаться по слову-активатору.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = wakeEnabled,
+                    onCheckedChange = { checked ->
+                        if (checked) {
+                            val granted = ContextCompat.checkSelfPermission(
+                                context, Manifest.permission.RECORD_AUDIO,
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (granted) enableWake()
+                            else micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        } else {
+                            disableWake()
+                        }
+                    },
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = wakeWord,
+                onValueChange = { wakeWord = it },
+                label = { Text("Слово-активатор") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Непрерывное распознавание заметно расходует батарею и зависит от устройства.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Spacer(Modifier.height(24.dp))
             Button(
                 onClick = {
                     settings.apiKey = apiKey
                     settings.model = model
+                    settings.wakeWord = wakeWord
+                    // Detection reads the word live; re-start only refreshes the notification text.
+                    if (settings.wakeWordEnabled) WakeWordService.start(context)
                     showSaved = true
                 },
                 modifier = Modifier.fillMaxWidth(),
