@@ -20,12 +20,7 @@ import java.util.concurrent.TimeUnit
  * caller-provided [toolExecutor]; forced tool choice is avoided (it returns 400 on the 5.x models),
  * so we rely on `tool_choice: auto` plus the system prompt.
  */
-class ClaudeClient(private val settings: SettingsRepository) {
-
-    /** Executes one tool call and returns a (success, humanMessage) pair for the tool_result. */
-    fun interface ToolExecutor {
-        fun execute(toolName: String, input: JSONObject): Pair<Boolean, String>
-    }
+class ClaudeClient(private val settings: SettingsRepository) : AssistantBackend {
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -36,18 +31,18 @@ class ClaudeClient(private val settings: SettingsRepository) {
     /** Conversation history (user / assistant turns) kept across voice requests. */
     private val messages = JSONArray()
 
-    fun resetConversation() {
+    override fun resetConversation() {
         // JSONArray has no clear() across all API levels; rebuild by removing from the end.
         while (messages.length() > 0) messages.remove(messages.length() - 1)
     }
 
     /**
      * Sends [userText], running the tool loop until Claude produces a final answer.
-     * Returns the text to speak. Throws [ClaudeException] on API/transport errors.
+     * Returns the text to speak. Throws [BackendException] on API/transport errors.
      */
-    suspend fun send(userText: String, toolExecutor: ToolExecutor): String = withContext(Dispatchers.IO) {
+    override suspend fun send(userText: String, toolExecutor: ToolExecutor): String = withContext(Dispatchers.IO) {
         val apiKey = settings.apiKey
-        if (apiKey.isBlank()) throw ClaudeException("Не задан ключ API.")
+        if (apiKey.isBlank()) throw BackendException("Не задан ключ API.")
 
         messages.put(JSONObject().put("role", "user").put("content", userText))
 
@@ -125,12 +120,12 @@ class ClaudeClient(private val settings: SettingsRepository) {
             http.newCall(request).execute().use { resp ->
                 val text = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
-                    throw ClaudeException(parseApiError(text, resp.code))
+                    throw BackendException(parseApiError(text, resp.code))
                 }
                 text
             }
         } catch (e: IOException) {
-            throw ClaudeException("Нет связи с сервером Claude: ${e.message ?: "сеть недоступна"}")
+            throw BackendException("Нет связи с сервером Claude: ${e.message ?: "сеть недоступна"}")
         }
 
         return JSONObject(raw)
@@ -147,8 +142,6 @@ class ClaudeClient(private val settings: SettingsRepository) {
     } catch (e: Exception) {
         "Ошибка API ($code)."
     }
-
-    class ClaudeException(message: String) : Exception(message)
 
     companion object {
         private const val ENDPOINT = "https://api.anthropic.com/v1/messages"

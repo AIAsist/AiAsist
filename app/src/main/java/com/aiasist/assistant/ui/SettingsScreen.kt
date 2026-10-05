@@ -59,10 +59,15 @@ fun SettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val settings = remember { SettingsRepository(context) }
 
+    var provider by remember { mutableStateOf(settings.provider) }
     var apiKey by remember { mutableStateOf(settings.apiKey) }
     var model by remember { mutableStateOf(settings.model) }
+    var orKey by remember { mutableStateOf(settings.openRouterKey) }
+    var orModel by remember { mutableStateOf(settings.openRouterModel) }
     var keyVisible by remember { mutableStateOf(false) }
     var showSaved by remember { mutableStateOf(false) }
+
+    val isOpenRouter = provider == SettingsRepository.PROVIDER_OPENROUTER
 
     var wakeEnabled by remember { mutableStateOf(settings.wakeWordEnabled) }
     var wakeWord by remember { mutableStateOf(settings.wakeWord) }
@@ -112,51 +117,136 @@ fun SettingsScreen(onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState()),
         ) {
             Spacer(Modifier.height(8.dp))
-            Text("Ключ Anthropic API", style = MaterialTheme.typography.titleMedium)
+            Text("Провайдер ИИ", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = apiKey,
-                onValueChange = { apiKey = it },
-                label = { Text("sk-ant-…") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                trailingIcon = {
-                    IconButton(onClick = { keyVisible = !keyVisible }) {
-                        Icon(
-                            if (keyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                            contentDescription = if (keyVisible) "Скрыть" else "Показать",
-                        )
-                    }
-                },
+            ProviderRow(
+                label = "Anthropic (напрямую)",
+                hint = "Родной Claude API, нужен баланс в Anthropic",
+                selected = !isOpenRouter,
+                onClick = { provider = SettingsRepository.PROVIDER_ANTHROPIC },
             )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Ключ хранится в зашифрованном виде на устройстве и используется только для запросов к Claude API.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            ProviderRow(
+                label = "OpenRouter",
+                hint = "Много моделей, есть бесплатные (:free)",
+                selected = isOpenRouter,
+                onClick = { provider = SettingsRepository.PROVIDER_OPENROUTER },
             )
 
-            Spacer(Modifier.height(24.dp))
-            Text("Модель", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            SettingsRepository.AVAILABLE_MODELS.forEach { option ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .selectable(selected = model == option, onClick = { model = option })
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RadioButton(selected = model == option, onClick = { model = option })
-                    Column(Modifier.padding(start = 8.dp)) {
-                        Text(option, style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.height(16.dp))
+
+            if (isOpenRouter) {
+                Text("Ключ OpenRouter", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = orKey,
+                    onValueChange = { orKey = it },
+                    label = { Text("sk-or-…") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    trailingIcon = {
+                        IconButton(onClick = { keyVisible = !keyVisible }) {
+                            Icon(
+                                if (keyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                contentDescription = if (keyVisible) "Скрыть" else "Показать",
+                            )
+                        }
+                    },
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Ключ с openrouter.ai/keys. Хранится зашифрованно на устройстве.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Spacer(Modifier.height(24.dp))
+                Text("Модель OpenRouter", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = orModel,
+                    onValueChange = { orModel = it },
+                    label = { Text("например google/gemini-2.0-flash-exp:free") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Бесплатные модели (нажмите, чтобы выбрать):",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                SettingsRepository.FREE_OPENROUTER_MODELS.forEach { option ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(selected = orModel == option, onClick = { orModel = option })
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = orModel == option, onClick = { orModel = option })
                         Text(
-                            modelHint(option),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            option,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(start = 8.dp),
                         )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Список всех бесплатных моделей: openrouter.ai/models?max_price=0. " +
+                        "У части бесплатных моделей голосовые команды (инструменты) работают хуже.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text("Ключ Anthropic API", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = apiKey,
+                    onValueChange = { apiKey = it },
+                    label = { Text("sk-ant-…") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    trailingIcon = {
+                        IconButton(onClick = { keyVisible = !keyVisible }) {
+                            Icon(
+                                if (keyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                contentDescription = if (keyVisible) "Скрыть" else "Показать",
+                            )
+                        }
+                    },
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Ключ хранится в зашифрованном виде на устройстве и используется только для запросов к Claude API.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Spacer(Modifier.height(24.dp))
+                Text("Модель", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                SettingsRepository.AVAILABLE_MODELS.forEach { option ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(selected = model == option, onClick = { model = option })
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = model == option, onClick = { model = option })
+                        Column(Modifier.padding(start = 8.dp)) {
+                            Text(option, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                modelHint(option),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
@@ -214,8 +304,11 @@ fun SettingsScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(24.dp))
             Button(
                 onClick = {
+                    settings.provider = provider
                     settings.apiKey = apiKey
                     settings.model = model
+                    settings.openRouterKey = orKey
+                    settings.openRouterModel = orModel
                     settings.wakeWord = wakeWord
                     // Detection reads the word live; re-start only refreshes the notification text.
                     if (settings.wakeWordEnabled) WakeWordService.start(context)
@@ -247,6 +340,32 @@ fun SettingsScreen(onBack: () -> Unit) {
                     Button(onClick = { showSaved = false; onBack() }) { Text("ОК") }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ProviderRow(
+    label: String,
+    hint: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected, onClick = onClick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = onClick)
+        Column(Modifier.padding(start = 8.dp)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

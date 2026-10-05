@@ -32,6 +32,21 @@ class SettingsRepository(context: Context) {
         get() = prefs.getString(KEY_MODEL, DEFAULT_MODEL).orEmpty().ifBlank { DEFAULT_MODEL }
         set(value) = prefs.edit().putString(KEY_MODEL, value).apply()
 
+    /** Which backend to use: [PROVIDER_ANTHROPIC] (direct) or [PROVIDER_OPENROUTER]. */
+    var provider: String
+        get() = prefs.getString(KEY_PROVIDER, PROVIDER_ANTHROPIC).orEmpty().ifBlank { PROVIDER_ANTHROPIC }
+        set(value) = prefs.edit().putString(KEY_PROVIDER, value).apply()
+
+    /** OpenRouter API key (used when [provider] is [PROVIDER_OPENROUTER]). */
+    var openRouterKey: String
+        get() = prefs.getString(KEY_OR_KEY, "").orEmpty()
+        set(value) = prefs.edit().putString(KEY_OR_KEY, value.trim()).apply()
+
+    /** OpenRouter model id, e.g. a free model. Editable because OpenRouter's catalogue changes. */
+    var openRouterModel: String
+        get() = prefs.getString(KEY_OR_MODEL, DEFAULT_OPENROUTER_MODEL).orEmpty().ifBlank { DEFAULT_OPENROUTER_MODEL }
+        set(value) = prefs.edit().putString(KEY_OR_MODEL, value.trim()).apply()
+
     /** Whether the always-listening wake-word service should run. */
     var wakeWordEnabled: Boolean
         get() = prefs.getBoolean(KEY_WAKE_ENABLED, false)
@@ -42,14 +57,22 @@ class SettingsRepository(context: Context) {
         get() = prefs.getString(KEY_WAKE_WORD, DEFAULT_WAKE_WORD).orEmpty().ifBlank { DEFAULT_WAKE_WORD }
         set(value) = prefs.edit().putString(KEY_WAKE_WORD, value.trim().lowercase()).apply()
 
-    fun hasApiKey(): Boolean = apiKey.isNotBlank()
+    /** True when the currently selected provider has a key configured. */
+    fun hasApiKey(): Boolean =
+        if (provider == PROVIDER_OPENROUTER) openRouterKey.isNotBlank() else apiKey.isNotBlank()
 
     companion object {
         private const val PREFS_NAME = "aiasist_secure_prefs"
         private const val KEY_API = "anthropic_api_key"
         private const val KEY_MODEL = "model"
+        private const val KEY_PROVIDER = "provider"
+        private const val KEY_OR_KEY = "openrouter_api_key"
+        private const val KEY_OR_MODEL = "openrouter_model"
         private const val KEY_WAKE_ENABLED = "wake_enabled"
         private const val KEY_WAKE_WORD = "wake_word"
+
+        const val PROVIDER_ANTHROPIC = "anthropic"
+        const val PROVIDER_OPENROUTER = "openrouter"
 
         /** Default hotword phrase. */
         const val DEFAULT_WAKE_WORD = "ассистент"
@@ -57,11 +80,21 @@ class SettingsRepository(context: Context) {
         /** Per the project default; the user can switch to a faster/cheaper model in Settings. */
         const val DEFAULT_MODEL = "claude-opus-5-5"
 
-        /** Models offered in the settings picker. Fast/cheap options help voice latency. */
+        /** A free, tool-capable OpenRouter model. Editable — OpenRouter's free list changes. */
+        const val DEFAULT_OPENROUTER_MODEL = "google/gemini-2.0-flash-exp:free"
+
+        /** Models offered in the Anthropic picker. Fast/cheap options help voice latency. */
         val AVAILABLE_MODELS = listOf(
             "claude-opus-5-5",
             "claude-sonnet-5-5",
             "claude-haiku-4-5",
+        )
+
+        /** A few free OpenRouter models suggested in Settings (user can type any id). */
+        val FREE_OPENROUTER_MODELS = listOf(
+            "google/gemini-2.0-flash-exp:free",
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "deepseek/deepseek-chat-v3-0324:free",
         )
     }
 }

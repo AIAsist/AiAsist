@@ -7,7 +7,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.aiasist.assistant.ai.AssistantBackend
+import com.aiasist.assistant.ai.BackendException
 import com.aiasist.assistant.ai.ClaudeClient
+import com.aiasist.assistant.ai.OpenAiClient
 import com.aiasist.assistant.data.SettingsRepository
 import com.aiasist.assistant.device.DeviceActions
 import com.aiasist.assistant.voice.SpeechRecognizerManager
@@ -25,10 +28,17 @@ data class ChatMessage(val id: Long, val fromUser: Boolean, val text: String)
 class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     private val settings = SettingsRepository(app)
-    private val claude = ClaudeClient(settings)
     private val deviceActions = DeviceActions(app.applicationContext)
     private val recognizer = SpeechRecognizerManager(app.applicationContext)
     private val tts = TextToSpeechManager(app.applicationContext)
+
+    // Backends are created lazily and swapped when the provider changes in Settings.
+    private val claude = ClaudeClient(settings)
+    private val openRouter = OpenAiClient(settings)
+    private var activeProvider = settings.provider
+
+    private fun backend(): AssistantBackend =
+        if (settings.provider == SettingsRepository.PROVIDER_OPENROUTER) openRouter else claude
 
     val messages = mutableStateListOf<ChatMessage>()
 
@@ -92,8 +102,16 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun handleUserText(text: String) {
         addUser(text)
+        // If the provider changed in Settings, start the new backend's conversation fresh.
+        if (settings.provider != activeProvider) {
+            activeProvider = settings.provider
+            claude.resetConversation()
+            openRouter.resetConversation()
+        }
         if (!settings.hasApiKey()) {
-            val msg = "Не задан ключ API. Откройте настройки и вставьте ключ Anthropic."
+            val msg = if (settings.provider == SettingsRepository.PROVIDER_OPENROUTER)
+                "Не задан ключ OpenRouter. Откройте настройки и вставьте ключ."
+            else "Не задан ключ API. Откройте настройки и вставьте ключ Anthropic."
             addAssistant(msg)
             speak(msg)
             return
@@ -101,11 +119,11 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
         status = AssistantStatus.THINKING
         viewModelScope.launch {
             val reply = try {
-                claude.send(text) { name, input ->
+                backend().send(text) { name, input ->
                     val result = deviceActions.execute(name, input)
                     result.success to result.message
                 }
-            } catch (e: ClaudeClient.ClaudeException) {
+            } catch (e: BackendException) {
                 e.message ?: "Произошла ошибка."
             } catch (e: Exception) {
                 "Произошла ошибка: ${e.message ?: "неизвестно"}"
@@ -124,6 +142,7 @@ class AssistantViewModel(app: Application) : AndroidViewModel(app) {
 
     fun newConversation() {
         claude.resetConversation()
+        openRouter.resetConversation()
         messages.clear()
         partialText = ""
         status = AssistantStatus.IDLE
