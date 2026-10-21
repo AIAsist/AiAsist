@@ -1,0 +1,73 @@
+# Builds «Курьер: Сестрорецк»: tests, downloads the town from OpenStreetMap (Overpass API),
+# builds the site and, on main, publishes it to GitHub Pages.
+name: Courier game
+
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths: ['courier-game/**', '.github/workflows/courier-game.yml']
+  pull_request:
+    paths: ['courier-game/**', '.github/workflows/courier-game.yml']
+  workflow_dispatch:
+    inputs:
+      refresh_map:
+        description: 'Скачать карту из OpenStreetMap заново (игнорировать кэш)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: courier-game-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: courier-game
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: courier-game/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      # The raw Overpass download is cached for a month: fewer requests to the free OSM servers.
+      - id: month
+        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: courier-game/data-raw
+          key: osm-${{ hashFiles('courier-game/map.config.json', 'courier-game/src/osm/overpass.ts') }}-${{ steps.month.outputs.month }}
+
+      - name: Build the Sestroretsk map from OpenStreetMap
+        run: npm run map -- ${{ inputs.refresh_map && '--refresh' || '' }}
+
+      - run: npx vite build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: courier-game/dist
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

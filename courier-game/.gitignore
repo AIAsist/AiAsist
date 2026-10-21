@@ -1,0 +1,6 @@
+node_modules/
+dist/
+# Raw Overpass downloads (big, re-downloadable).
+data-raw/
+# Generated map data — built by `npm run map` (real OSM) or `npm run map:test` (test town).
+public/data/*.json
