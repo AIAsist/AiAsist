@@ -1,5 +1,5 @@
-# Builds «Курьер: Сестрорецк»: tests, downloads the town from OpenStreetMap (Overpass API),
-# builds the site and, on main, publishes it to GitHub Pages.
+# Builds «Курьер: Сестрорецк»: tests, gets the town from OpenStreetMap (Geofabrik extract, or the
+# Overpass API as a fallback), builds the site and, on main, publishes it to GitHub Pages.
 name: Courier game
 
 on:
@@ -41,8 +41,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
-      # Raw Overpass tiles are cached for a month: fewer requests to the free OSM servers. The cache
-      # is saved even when the download fails, so the next run only fetches the missing tiles.
+      # Raw OSM data (town extract / Overpass tiles) is cached for a month: fewer downloads from the
+      # free OSM servers. Saved even when the step fails, so a rerun only fetches what is missing.
       - id: osm
         run: |
           echo "prefix=osm-${{ hashFiles('courier-game/map.config.json', 'courier-game/src/osm/overpass.ts') }}-$(date -u +%Y-%m)-" >> "$GITHUB_OUTPUT"
@@ -52,6 +52,11 @@ jobs:
           path: courier-game/data-raw
           key: ${{ steps.osm.outputs.prefix }}${{ github.run_id }}
           restore-keys: ${{ steps.osm.outputs.prefix }}
+
+      # osmium cuts the town out of the Geofabrik extract — a plain file download, much more
+      # reliable than the public Overpass servers (the script falls back to them if it fails).
+      - name: Install osmium
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq osmium-tool
 
       - name: Build the Sestroretsk map from OpenStreetMap
         timeout-minutes: 45

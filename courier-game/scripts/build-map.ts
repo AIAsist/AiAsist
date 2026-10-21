@@ -5,12 +5,19 @@
 //   npm run map -- --bbox=S,W,N,E      — use an explicit bounding box (default: "bbox" in map.config.json)
 //   npm run map -- --boundary          — look the town boundary up in OSM instead of the configured bbox
 //   npm run map -- --input=file.json   — convert a saved Overpass response (e.g. from overpass-turbo.eu)
+//   npm run map -- --source=geofabrik  — cut the town out of the Geofabrik region extract with osmium
+//                                         (needs `osmium` in PATH); --source=overpass — only Overpass;
+//                                         default (auto): Geofabrik if osmium is installed, else Overpass
 
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { convertOsm } from '../src/osm/convert';
+import { parseOsmXml } from '../src/osm/osmXml';
 import {
   OVERPASS_ENDPOINTS,
   bboxAround,
@@ -35,6 +42,8 @@ const config = JSON.parse(readFileSync(resolve(root, 'map.config.json'), 'utf8')
   tileKm: number;
   /** The town's bbox, found once from its OSM boundary (`--boundary`) and stored to skip the lookup. */
   bbox?: BBox;
+  /** Geofabrik region extract (.osm.pbf) that contains the town. */
+  geofabrik: string;
 };
 
 const args = new Map(
@@ -134,6 +143,62 @@ async function downloadTiles(bbox: BBox): Promise<OverpassResponse> {
   return merged;
 }
 
+function osmiumAvailable(): boolean {
+  try {
+    execFileSync('osmium', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function downloadFile(url: string, file: string): Promise<void> {
+  console.log(`[geofabrik] downloading ${url}`);
+  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
+  const tmp = `${file}.part`;
+  let bytes = 0;
+  let nextLog = 100e6;
+  const body = Readable.fromWeb(res.body as never);
+  body.on('data', (chunk: Buffer) => {
+    bytes += chunk.length;
+    if (bytes >= nextLog) {
+      console.log(`[geofabrik] … ${(bytes / 1e6).toFixed(0)} MB`);
+      nextLog += 100e6;
+    }
+  });
+  await pipeline(body, createWriteStream(tmp));
+  renameSync(tmp, file);
+  console.log(`[geofabrik] ${(bytes / 1e6).toFixed(0)} MB downloaded`);
+}
+
+/**
+ * Cuts the bbox out of the Geofabrik region extract with osmium (complete ways and multipolygons)
+ * and reads it as Overpass-like elements. Only the small town extract is kept in data-raw/.
+ */
+async function fromGeofabrik(bbox: BBox): Promise<OverpassResponse> {
+  const dir = resolve(root, 'data-raw');
+  mkdirSync(dir, { recursive: true });
+  const key = createHash('sha1').update(`${config.geofabrik}|${fmt(bbox)}`).digest('hex').slice(0, 10);
+  const extract = resolve(dir, `${config.id}-${key}.osm.pbf`);
+  if (!existsSync(extract) || args.has('refresh')) {
+    const region = resolve(dir, basename(new URL(config.geofabrik).pathname));
+    if (!existsSync(region) || args.has('refresh')) await downloadFile(config.geofabrik, region);
+    const b = [bbox.west, bbox.south, bbox.east, bbox.north].join(',');
+    console.log(`[geofabrik] osmium extract -b ${b}`);
+    execFileSync('osmium', ['extract', '-b', b, '--strategy=smart', '--overwrite', '-o', extract, region], { stdio: 'inherit' });
+    rmSync(region); // hundreds of MB: not worth keeping once the town is cut out
+  } else {
+    console.log(`[geofabrik] using cached ${basename(extract)}`);
+  }
+  const xmlFile = extract.replace(/\.pbf$/, '');
+  execFileSync('osmium', ['cat', '--overwrite', '-o', xmlFile, extract], { stdio: 'inherit' });
+  const elements = parseOsmXml(readFileSync(xmlFile, 'utf8'));
+  rmSync(xmlFile);
+  console.log(`[geofabrik] ${elements.length} elements`);
+  return { elements };
+}
+
 const fmt = (b: BBox) => [b.south, b.west, b.north, b.east].map((v) => v.toFixed(4)).join(',');
 
 async function main() {
@@ -147,7 +212,20 @@ async function main() {
     console.log(`[map] converting ${input} (${data.elements.length} elements), bbox ${fmt(bbox)}`);
   } else {
     bbox = await resolveBBox();
-    data = await downloadTiles(bbox);
+    const source = args.get('source') ?? 'auto';
+    const useGeofabrik = source === 'geofabrik' || (source === 'auto' && osmiumAvailable());
+    if (useGeofabrik) {
+      try {
+        data = await fromGeofabrik(bbox);
+      } catch (e) {
+        if (source === 'geofabrik') throw e;
+        console.warn(`[map] Geofabrik failed (${(e as Error).message}), falling back to Overpass`);
+        data = await downloadTiles(bbox);
+      }
+    } else {
+      if (source === 'auto') console.log('[map] osmium not installed: downloading from Overpass');
+      data = await downloadTiles(bbox);
+    }
   }
 
   const { map, stats, warnings } = convertOsm(data.elements, { name: config.name, bbox });

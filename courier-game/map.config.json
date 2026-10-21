@@ -6,5 +6,6 @@
   "maxSpanKm": 9,
   "fallbackHalfSizeKm": 4,
   "tileKm": 3,
-  "bbox": { "south": 60.0578, "west": 29.9192, "north": 60.1387, "east": 30.0814 }
+  "bbox": { "south": 60.0578, "west": 29.9192, "north": 60.1387, "east": 30.0814 },
+  "geofabrik": "https://download.geofabrik.de/russia/northwestern-fed-district-latest.osm.pbf"
 }
