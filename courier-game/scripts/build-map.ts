@@ -2,7 +2,8 @@
 //
 //   npm run map                        — download (or reuse the cache in data-raw/) and convert
 //   npm run map -- --refresh           — ignore the cache and download again
-//   npm run map -- --bbox=S,W,N,E      — use an explicit bounding box
+//   npm run map -- --bbox=S,W,N,E      — use an explicit bounding box (default: "bbox" in map.config.json)
+//   npm run map -- --boundary          — look the town boundary up in OSM instead of the configured bbox
 //   npm run map -- --input=file.json   — convert a saved Overpass response (e.g. from overpass-turbo.eu)
 
 import { createHash } from 'node:crypto';
@@ -32,6 +33,8 @@ const config = JSON.parse(readFileSync(resolve(root, 'map.config.json'), 'utf8')
   maxSpanKm: number;
   fallbackHalfSizeKm: number;
   tileKm: number;
+  /** The town's bbox, found once from its OSM boundary (`--boundary`) and stored to skip the lookup. */
+  bbox?: BBox;
 };
 
 const args = new Map(
@@ -44,10 +47,15 @@ const args = new Map(
 const USER_AGENT = 'courier-sestroretsk-game/0.1 (+https://github.com/AIAsist/AiAsist)';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function overpass(query: string, label: string): Promise<OverpassResponse> {
+async function overpass(query: string, label: string, rounds = 3): Promise<OverpassResponse> {
   const errors: string[] = [];
-  // Two rounds over all mirrors: a busy server is skipped quickly instead of retried in place.
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  // Rounds over all mirrors: a busy server is skipped quickly instead of retried in place, and when
+  // every server is down at once we pause before the next round.
+  for (let attempt = 1; attempt <= rounds; attempt++) {
+    if (attempt > 1) {
+      console.log(`[overpass] ${label}: all servers failed, retrying in ${30 * (attempt - 1)} s`);
+      await sleep(30_000 * (attempt - 1));
+    }
     for (const endpoint of OVERPASS_ENDPOINTS) {
       const started = Date.now();
       try {
@@ -56,7 +64,7 @@ async function overpass(query: string, label: string): Promise<OverpassResponse>
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': USER_AGENT },
           body: new URLSearchParams({ data: query }).toString(),
-          signal: AbortSignal.timeout(5 * 60 * 1000),
+          signal: AbortSignal.timeout(3.5 * 60 * 1000),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
         const json = checkOverpassResponse(await res.json());
@@ -80,8 +88,12 @@ async function resolveBBox(): Promise<BBox> {
     if ([south, west, north, east].some((v) => !Number.isFinite(v))) throw new Error(`Bad --bbox: ${explicit}`);
     return { south, west, north, east };
   }
+  if (config.bbox && !args.has('boundary')) {
+    console.log(`[map] bbox from map.config.json: ${fmt(config.bbox)}`);
+    return config.bbox;
+  }
   try {
-    const info = parseBoundary(await overpass(boundaryQuery(config.boundaryName), 'boundary'));
+    const info = parseBoundary(await overpass(boundaryQuery(config.boundaryName), 'boundary', 1));
     const center = info.center ?? config.center;
     if (info.bbox) {
       const capped = capBBox(info.bbox, config.maxSpanKm, center);

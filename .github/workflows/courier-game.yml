@@ -41,17 +41,27 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
-      # The raw Overpass download is cached for a month: fewer requests to the free OSM servers.
-      - id: month
-        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      # Raw Overpass tiles are cached for a month: fewer requests to the free OSM servers. The cache
+      # is saved even when the download fails, so the next run only fetches the missing tiles.
+      - id: osm
+        run: |
+          echo "prefix=osm-${{ hashFiles('courier-game/map.config.json', 'courier-game/src/osm/overpass.ts') }}-$(date -u +%Y-%m)-" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v4
+        if: ${{ !inputs.refresh_map }}
         with:
           path: courier-game/data-raw
-          key: osm-${{ hashFiles('courier-game/map.config.json', 'courier-game/src/osm/overpass.ts') }}-${{ steps.month.outputs.month }}
+          key: ${{ steps.osm.outputs.prefix }}${{ github.run_id }}
+          restore-keys: ${{ steps.osm.outputs.prefix }}
 
       - name: Build the Sestroretsk map from OpenStreetMap
         timeout-minutes: 45
         run: npm run map -- ${{ inputs.refresh_map && '--refresh' || '' }}
+
+      - uses: actions/cache/save@v4
+        if: ${{ always() && hashFiles('courier-game/data-raw/*.json') != '' }}
+        with:
+          path: courier-game/data-raw
+          key: ${{ steps.osm.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
 
       - run: npx vite build
 
