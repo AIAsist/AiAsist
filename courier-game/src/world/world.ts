@@ -183,9 +183,13 @@ export class World {
     return x >= b.minX + margin && x <= b.maxX - margin && y >= b.minY + margin && y <= b.maxY - margin;
   }
 
-  /** Whether a round body of radius `r` can stand at (x, y). Roads (bridges!) override water. */
+  /**
+   * Whether a round body of radius `r` can stand at (x, y). Roads are always passable: bridges over
+   * water, passages through buildings, and footways that OSM draws slightly overlapping a wall.
+   */
   isBlocked(x: number, y: number, r: number): boolean {
     if (!this.insideBounds(x, y, r)) return true;
+    if (this.onRoad(x, y)) return false;
     if (
       this.inBuilding(x, y) ||
       this.inBuilding(x + r, y) ||
@@ -194,7 +198,7 @@ export class World {
       this.inBuilding(x, y - r)
     )
       return true;
-    return this.inWater(x, y) && !this.onRoad(x, y);
+    return this.inWater(x, y);
   }
 
   /** Whether a body of radius `r` can go straight from one point to another. */

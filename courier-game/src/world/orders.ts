@@ -35,18 +35,22 @@ export type Rng = () => number;
 
 const MAX_SNAP = 150;
 
-/** Moves a point that lies inside a building towards its road node until the courier fits. */
+/**
+ * The «door»: the point closest to the place that the courier can reach in a straight line from its
+ * road node. A building's centre or a yard enclosed by houses would otherwise be unreachable.
+ */
 function accessPoint(world: World, x: number, y: number, node: number): { x: number; y: number } {
-  if (!world.isBlocked(x, y, COURIER_RADIUS)) return { x, y };
   const nx = world.graph.xs[node];
   const ny = world.graph.ys[node];
-  const d = Math.hypot(nx - x, ny - y);
-  for (let t = 1; t < d; t += 1) {
-    const px = x + ((nx - x) * t) / d;
-    const py = y + ((ny - y) * t) / d;
-    if (!world.isBlocked(px, py, COURIER_RADIUS)) return { x: px, y: py };
+  const d = Math.hypot(x - nx, y - ny);
+  let best = { x: nx, y: ny };
+  for (let t = 1; t <= d; t += 1) {
+    const px = nx + ((x - nx) * t) / d;
+    const py = ny + ((y - ny) * t) / d;
+    if (world.isBlocked(px, py, COURIER_RADIUS)) break;
+    best = { x: px, y: py };
   }
-  return { x: nx, y: ny };
+  return best;
 }
 
 export function buildPickups(world: World): Place[] {
