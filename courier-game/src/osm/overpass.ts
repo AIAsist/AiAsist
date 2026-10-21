@@ -23,7 +23,8 @@ out;`;
 /** Everything the game draws or uses inside the bbox. */
 export function mapQuery(b: BBox): string {
   const bbox = [b.south, b.west, b.north, b.east].map((v) => v.toFixed(6)).join(',');
-  return `[out:json][timeout:600][maxsize:1073741824][bbox:${bbox}];
+  // Modest timeout/maxsize: Overpass queues requests that ask for big limits when it is busy.
+  return `[out:json][timeout:240][maxsize:268435456][bbox:${bbox}];
 (
   way["highway"];
   way["building"];

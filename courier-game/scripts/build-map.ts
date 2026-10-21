@@ -43,26 +43,27 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function overpass(query: string, label: string): Promise<OverpassResponse> {
   const errors: string[] = [];
-  for (const endpoint of OVERPASS_ENDPOINTS) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
+  // Two rounds over all mirrors: a busy server is skipped quickly instead of retried in place.
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    for (const endpoint of OVERPASS_ENDPOINTS) {
       const started = Date.now();
       try {
-        console.log(`[overpass] ${label}: ${endpoint} (attempt ${attempt})`);
+        console.log(`[overpass] ${label}: ${endpoint} (round ${attempt})`);
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': USER_AGENT },
           body: new URLSearchParams({ data: query }).toString(),
-          signal: AbortSignal.timeout(11 * 60 * 1000),
+          signal: AbortSignal.timeout(5 * 60 * 1000),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
         const json = checkOverpassResponse(await res.json());
         console.log(`[overpass] ${label}: ${json.elements.length} elements in ${((Date.now() - started) / 1000).toFixed(1)} s`);
         return json;
       } catch (e) {
-        const msg = `${endpoint}: ${(e as Error).message}`;
+        const msg = `${endpoint}: ${(e as Error).message} after ${((Date.now() - started) / 1000).toFixed(0)} s`;
         console.warn(`[overpass] ${label} failed — ${msg}`);
         errors.push(msg);
-        await sleep(attempt * 5000);
+        await sleep(3000);
       }
     }
   }
