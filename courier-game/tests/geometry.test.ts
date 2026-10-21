@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildSea, clipPolyline, mergeChains } from '../src/osm/coastline';
 import { shortStreetName } from '../src/osm/names';
-import { bboxAround, capBBox } from '../src/osm/overpass';
+import { bboxAround, capBBox, mergeResponses, splitBBox } from '../src/osm/overpass';
 import { makeProjection } from '../src/osm/projection';
 import { assembleRings, buildPolygons } from '../src/osm/rings';
 import { pointInPolygon, polygonArea, ringSignedArea, simplifyLine, simplifyRing } from '../src/world/geometry';
@@ -39,6 +39,20 @@ describe('projection', () => {
     const [lat, lon] = p.toLatLon(x, y);
     expect(lat).toBeCloseTo(60.01, 9);
     expect(lon).toBeCloseTo(30.02, 9);
+  });
+
+  it('splits the download into tiles and merges duplicates back', () => {
+    const b = bboxAround(60.1, 29.96, 4.5); // 9 × 9 km
+    const tiles = splitBBox(b, 3);
+    expect(tiles).toHaveLength(9);
+    expect(tiles[0].south).toBeCloseTo(b.south, 9);
+    expect(tiles[8].north).toBeCloseTo(b.north, 9);
+    expect(tiles[8].east).toBeCloseTo(b.east, 9);
+    expect(splitBBox(bboxAround(60, 30, 1), 3)).toHaveLength(1);
+    const way = { type: 'way' as const, id: 7, nodes: [1, 2] };
+    const node = { type: 'node' as const, id: 7, lat: 60, lon: 30 };
+    const merged = mergeResponses([{ elements: [way, node] }, { elements: [way] }]);
+    expect(merged.elements).toHaveLength(2); // same id, different types are different elements
   });
 
   it('caps a large bbox around the focus point', () => {

@@ -1,6 +1,6 @@
 // Overpass API queries for the game map.
 
-import type { BBox, OverpassResponse } from './types';
+import type { BBox, OsmElement, OverpassResponse } from './types';
 
 export const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
@@ -23,8 +23,8 @@ out;`;
 /** Everything the game draws or uses inside the bbox. */
 export function mapQuery(b: BBox): string {
   const bbox = [b.south, b.west, b.north, b.east].map((v) => v.toFixed(6)).join(',');
-  // Modest timeout/maxsize: Overpass queues requests that ask for big limits when it is busy.
-  return `[out:json][timeout:240][maxsize:268435456][bbox:${bbox}];
+  // Modest timeout/maxsize: busy Overpass servers reject or hold back queries asking for big limits.
+  return `[out:json][timeout:180][maxsize:268435456][bbox:${bbox}];
 (
   way["highway"];
   way["building"];
@@ -103,4 +103,35 @@ export function capBBox(b: BBox, maxKm: number, focus: { lat: number; lon: numbe
   const [south, north] = fit(b.south, b.north, latSpan, focus.lat);
   const [west, east] = fit(b.west, b.east, lonSpan, focus.lon);
   return { south, west, north, east };
+}
+
+/**
+ * Splits a bbox into a grid of tiles at most `tileKm` per side. Public Overpass servers answer
+ * 504 to one big town-sized request, while several small ones go through.
+ */
+export function splitBBox(b: BBox, tileKm: number): BBox[] {
+  const midLat = ((b.south + b.north) / 2) * (Math.PI / 180);
+  const heightKm = ((b.north - b.south) * M_PER_DEG_LAT) / 1000;
+  const widthKm = ((b.east - b.west) * M_PER_DEG_LAT * Math.cos(midLat)) / 1000;
+  const rows = Math.max(1, Math.ceil(heightKm / tileKm - 0.05));
+  const cols = Math.max(1, Math.ceil(widthKm / tileKm - 0.05));
+  const tiles: BBox[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      tiles.push({
+        south: b.south + ((b.north - b.south) * r) / rows,
+        north: b.south + ((b.north - b.south) * (r + 1)) / rows,
+        west: b.west + ((b.east - b.west) * c) / cols,
+        east: b.west + ((b.east - b.west) * (c + 1)) / cols,
+      });
+    }
+  }
+  return tiles;
+}
+
+/** Merges tile responses; elements crossing tile borders come back from several tiles — keep one. */
+export function mergeResponses(parts: OverpassResponse[]): OverpassResponse {
+  const seen = new Map<string, OsmElement>();
+  for (const part of parts) for (const el of part.elements) seen.set(`${el.type}/${el.id}`, el);
+  return { elements: [...seen.values()] };
 }

@@ -4,5 +4,6 @@
   "boundaryName": "Сестрорецк",
   "center": { "lat": 60.0983, "lon": 29.9633 },
   "maxSpanKm": 9,
-  "fallbackHalfSizeKm": 4
+  "fallbackHalfSizeKm": 4,
+  "tileKm": 3
 }

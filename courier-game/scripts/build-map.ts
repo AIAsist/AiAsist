@@ -17,7 +17,9 @@ import {
   capBBox,
   checkOverpassResponse,
   mapQuery,
+  mergeResponses,
   parseBoundary,
+  splitBBox,
 } from '../src/osm/overpass';
 import type { BBox, OverpassResponse } from '../src/osm/types';
 
@@ -29,6 +31,7 @@ const config = JSON.parse(readFileSync(resolve(root, 'map.config.json'), 'utf8')
   center: { lat: number; lon: number };
   maxSpanKm: number;
   fallbackHalfSizeKm: number;
+  tileKm: number;
 };
 
 const args = new Map(
@@ -93,6 +96,32 @@ async function resolveBBox(): Promise<BBox> {
   }
 }
 
+/** Downloads the bbox tile by tile; each tile is cached in data-raw/ so a rerun resumes where it failed. */
+async function downloadTiles(bbox: BBox): Promise<OverpassResponse> {
+  const tiles = splitBBox(bbox, config.tileKm);
+  console.log(`[map] downloading ${tiles.length} tiles of ≤ ${config.tileKm} km`);
+  const parts: OverpassResponse[] = [];
+  for (const [k, tile] of tiles.entries()) {
+    const query = mapQuery(tile);
+    const hash = createHash('sha1').update(query).digest('hex').slice(0, 10);
+    const cacheFile = resolve(root, 'data-raw', `${config.id}-${hash}.json`);
+    const label = `tile ${k + 1}/${tiles.length}`;
+    if (existsSync(cacheFile) && !args.has('refresh')) {
+      console.log(`[map] ${label}: cached`);
+      parts.push(checkOverpassResponse(JSON.parse(readFileSync(cacheFile, 'utf8'))));
+      continue;
+    }
+    const part = await overpass(query, label);
+    mkdirSync(dirname(cacheFile), { recursive: true });
+    writeFileSync(cacheFile, JSON.stringify(part));
+    parts.push(part);
+    await sleep(1000); // be polite to the free servers
+  }
+  const merged = mergeResponses(parts);
+  console.log(`[map] ${merged.elements.length} unique elements`);
+  return merged;
+}
+
 const fmt = (b: BBox) => [b.south, b.west, b.north, b.east].map((v) => v.toFixed(4)).join(',');
 
 async function main() {
@@ -106,17 +135,7 @@ async function main() {
     console.log(`[map] converting ${input} (${data.elements.length} elements), bbox ${fmt(bbox)}`);
   } else {
     bbox = await resolveBBox();
-    const query = mapQuery(bbox);
-    const hash = createHash('sha1').update(query).digest('hex').slice(0, 10);
-    const cacheFile = resolve(root, 'data-raw', `${config.id}-${hash}.json`);
-    if (existsSync(cacheFile) && !args.has('refresh')) {
-      console.log(`[map] using cached ${cacheFile}`);
-      data = checkOverpassResponse(JSON.parse(readFileSync(cacheFile, 'utf8')));
-    } else {
-      data = await overpass(query, 'map data');
-      mkdirSync(dirname(cacheFile), { recursive: true });
-      writeFileSync(cacheFile, JSON.stringify(data));
-    }
+    data = await downloadTiles(bbox);
   }
 
   const { map, stats, warnings } = convertOsm(data.elements, { name: config.name, bbox });
