@@ -63,12 +63,25 @@ jobs:
         run: npm run map -- ${{ inputs.refresh_map && '--refresh' || '' }}
 
       - uses: actions/cache/save@v4
-        if: ${{ always() && hashFiles('courier-game/data-raw/*.json') != '' }}
+        if: ${{ always() && hashFiles('courier-game/data-raw/**') != '' }}
         with:
           path: courier-game/data-raw
           key: ${{ steps.osm.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
 
       - run: npx vite build
+
+      # Plays one order on the real map in headless Chromium: autopilot follows the navigator from
+      # the pickup to the client. Screenshots are kept as a build artifact.
+      - name: Smoke test on the real map
+        run: |
+          npx playwright install --with-deps chromium
+          npm run smoke
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: smoke-screenshots
+          path: courier-game/smoke/
+          if-no-files-found: ignore
 
       - uses: actions/upload-pages-artifact@v3
         with:

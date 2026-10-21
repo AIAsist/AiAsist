@@ -197,6 +197,17 @@ export class World {
     return this.inWater(x, y) && !this.onRoad(x, y);
   }
 
+  /** Whether a body of radius `r` can go straight from one point to another. */
+  clearLine(x0: number, y0: number, x1: number, y1: number, r: number): boolean {
+    const d = Math.hypot(x1 - x0, y1 - y0);
+    const steps = Math.ceil(d / 1.5);
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      if (this.isBlocked(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, r)) return false;
+    }
+    return true;
+  }
+
   /** Name of the closest named road within `radius` metres. */
   streetNameAt(x: number, y: number, radius = 30): string | null {
     let best: string | null = null;

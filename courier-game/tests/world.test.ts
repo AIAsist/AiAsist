@@ -187,6 +187,30 @@ describe('orders and game loop', () => {
     expect(reloaded.profile.money).toBe(game.profile.money);
   });
 
+  it('lets an autopilot that follows the navigation route deliver an order', () => {
+    const game = new Game(map, 'route', { rng: seeded(7), store: new MemoryStore() });
+    game.update(1 / 60, { x: 0, y: 0 });
+    game.accept(game.board.offers[0].id);
+    const c = game.courier;
+    // Follow the route like a player would: steer at a point a few metres ahead.
+    for (let step = 0; step < 60 * 600 && game.active; step++) {
+      const p = game.route()!.points;
+      let [tx, ty] = [p[p.length - 2], p[p.length - 1]];
+      let along = 0;
+      for (let i = 2; i < p.length; i += 2) {
+        along += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]);
+        if (along > 6) {
+          [tx, ty] = [p[i], p[i + 1]];
+          break;
+        }
+      }
+      const dxy = Math.hypot(tx - c.x, ty - c.y) || 1;
+      game.update(1 / 60, { x: (tx - c.x) / dxy, y: (ty - c.y) / dxy });
+    }
+    expect(game.active).toBeNull();
+    expect(game.profile.deliveries).toBe(1);
+  });
+
   it('buys a vehicle only with enough money', () => {
     const game = new Game(map, 'shop', { store: new MemoryStore() });
     expect(game.chooseVehicle('bike')).toBe(false);

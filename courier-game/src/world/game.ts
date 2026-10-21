@@ -203,7 +203,12 @@ export class Game {
     if (!target || !this.field) return null;
     const g = this.world.graph;
     const c = this.courier;
-    const start = g.nearestNode(c.x, c.y, 3000);
+    // Final approach: straight to the door when it is close and nothing is in the way.
+    const direct = Math.hypot(target.x - c.x, target.y - c.y);
+    if (direct < 80 && this.world.clearLine(c.x, c.y, target.x, target.y, COURIER_RADIUS)) {
+      return { points: [c.x, c.y, target.x, target.y], length: direct, startNode: -1 };
+    }
+    const start = this.routeStart(this.field);
     const nodes = g.pathFromField(this.field, start);
     const points: FlatCoords = [c.x, c.y];
     for (const n of nodes) points.push(g.xs[n], g.ys[n]);
@@ -211,6 +216,30 @@ export class Game {
     let length = 0;
     for (let i = 0; i + 3 < points.length; i += 2) length += Math.hypot(points[i + 2] - points[i], points[i + 3] - points[i + 1]);
     return { points, length, startNode: start };
+  }
+
+  /**
+   * Where the route joins the road network. The nearest node can be behind the courier, so the
+   * ends of the road segment under the courier compete too: the shortest total way to the target wins.
+   */
+  private routeStart(field: DistanceField): number {
+    const g = this.world.graph;
+    const c = this.courier;
+    const candidates: number[] = [];
+    const hit = this.world.roadAt(c.x, c.y, 8);
+    if (hit) candidates.push(this.world.segA[hit.segment], this.world.segB[hit.segment]);
+    const nearest = g.nearestNode(c.x, c.y, 3000);
+    if (nearest >= 0) candidates.push(nearest);
+    let best = nearest;
+    let bestCost = Infinity;
+    for (const n of candidates) {
+      const cost = Math.hypot(g.xs[n] - c.x, g.ys[n] - c.y) + field.cost[n];
+      if (cost < bestCost) {
+        bestCost = cost;
+        best = n;
+      }
+    }
+    return best;
   }
 
   persist(): void {

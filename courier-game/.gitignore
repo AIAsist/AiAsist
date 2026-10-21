@@ -4,3 +4,4 @@ dist/
 data-raw/
 # Generated map data — built by `npm run map` (real OSM) or `npm run map:test` (test town).
 public/data/*.json
+smoke/
