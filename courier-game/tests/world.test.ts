@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { POI_KINDS } from '../src/data/mapFormat';
 import { convertOsm } from '../src/osm/convert';
-import { autopilotStep } from '../src/world/autopilot';
+import { createAutopilot } from '../src/world/autopilot';
 import { updateCourier, createCourier } from '../src/world/courier';
 import { Game, ARRIVE_RADIUS } from '../src/world/game';
 import { pointInPolygon } from '../src/world/geometry';
@@ -190,6 +190,7 @@ describe('orders and game loop', () => {
 
   it('lets an autopilot that follows the navigator (and minds the street) deliver orders', () => {
     const game = new Game(map, 'route', { rng: seeded(7), store: new MemoryStore() });
+    const autopilotStep = createAutopilot();
     for (let k = 0; k < 3; k++) {
       for (let w = 0; w < 600 && !game.board.offers.length; w++) game.update(1 / 60, { x: 0, y: 0 });
       game.accept(game.board.offers[0].id);
@@ -197,6 +198,7 @@ describe('orders and game loop', () => {
       expect(game.active).toBeNull();
     }
     expect(game.profile.deliveries).toBe(3);
+    expect(autopilotStep.unstucks).toBe(0);
   });
 
   it('never routes the courier through a wall to reach the road', () => {
@@ -212,7 +214,9 @@ describe('orders and game loop', () => {
     game.courier.y = 31;
     const p = game.route()!.points;
     expect(game.world.clearLine(p[0], p[1], p[2], p[3], 0.9)).toBe(true);
+    const autopilotStep = createAutopilot();
     for (let t = 0; t < 30; t += 1 / 60) game.update(1 / 60, autopilotStep(game));
+    expect(autopilotStep.unstucks).toBe(0);
     expect(Math.hypot(game.courier.x + 22, game.courier.y - 31)).toBeGreaterThan(20);
   });
 

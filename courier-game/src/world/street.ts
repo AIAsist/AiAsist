@@ -15,7 +15,7 @@ import type { World } from './world';
 export const CONTACT_RADIUS = 3;
 export const OFFICER_CATCH_RADIUS = 2.6;
 /** An officer can grab a courier only if it is not much faster than the officer runs: keep moving! */
-export const GRAB_SPEED_MARGIN = 2;
+export const GRAB_SPEED_MARGIN = 1;
 export const CAR_CATCH_RADIUS = 4;
 export const MAX_HEAT = 3;
 
@@ -106,8 +106,9 @@ export function jumperShare(vehicle: Vehicle): number {
   return 0.03 + vehicle.maxSpeed * 0.008;
 }
 
-export function detectRadius(heat: number): number {
-  return [20, 30, 38, 44][Math.min(heat, MAX_HEAT)];
+/** How close the police notices the courier: farther when wanted, and fast vehicles draw more attention. */
+export function detectRadius(heat: number, vehicleSpeed = 17): number {
+  return [20, 30, 38, 44][Math.min(heat, MAX_HEAT)] * Math.min(1, 0.55 + vehicleSpeed / 38);
 }
 
 export class StreetLife {
@@ -129,6 +130,7 @@ export class StreetLife {
   private quietTime = 0;
   private hitImmunity = 0;
   private jumperCooldown = 0;
+  private vehicleSpeed = 17;
   private listeners: ((e: StreetEvent) => void)[] = [];
 
   constructor(
@@ -147,6 +149,7 @@ export class StreetLife {
 
   /** `route` gives the current navigation route (officers wait on it). */
   update(dt: number, c: Courier, vehicle: Vehicle, route: () => FlatCoords | null): void {
+    this.vehicleSpeed = vehicle.maxSpeed;
     this.bellCooldown = Math.max(0, this.bellCooldown - dt);
     this.hitImmunity = Math.max(0, this.hitImmunity - dt);
     this.jumperCooldown = Math.max(0, this.jumperCooldown - dt);
@@ -448,7 +451,7 @@ export class StreetLife {
     const dist = Math.hypot(dx, dy);
     switch (o.state) {
       case 'post':
-        if (this.immunity <= 0 && dist < detectRadius(this.heat)) {
+        if (this.immunity <= 0 && dist < detectRadius(this.heat, this.vehicleSpeed)) {
           o.state = 'alert';
           o.timer = 0.6;
           o.heading = Math.atan2(dy, dx);

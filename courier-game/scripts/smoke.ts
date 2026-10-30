@@ -35,6 +35,8 @@ interface SmokeResult {
   pickups: number;
   drops: number;
   orders: OrderRun[];
+  /** Times the autopilot had to press «R» (back to the road) after running into a wall. */
+  unstucks: number;
   money: number;
   /** Street life seen on the way: people knocked over, police catches and escapes, dodges. */
   street: { hits: number; caught: number; escapes: number; dodges: number; pedestrians: number };
@@ -64,7 +66,8 @@ async function main() {
 
     const result: SmokeResult = await page.evaluate(
       ({ map, orders }) => {
-        const { game, autopilot } = (window as any).courierGame;
+        const { game, createAutopilot } = (window as any).courierGame;
+        const autopilot = createAutopilot();
         const world = game.world;
         const c = game.courier;
         const o = world.map.origin;
@@ -126,6 +129,7 @@ async function main() {
           pickups: game.board.pickups.length,
           drops: game.board.drops.length,
           orders: runs,
+          unstucks: autopilot.unstucks,
           money: p.money,
           street: { hits: p.hits, caught: p.caught, escapes: p.escapes, dodges: p.dodges, pedestrians: game.street.pedestrians.length },
         };

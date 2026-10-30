@@ -5,7 +5,7 @@ import { Hud } from './ui/hud';
 import { Input } from './ui/input';
 import { Minimap } from './ui/minimap';
 import { Sound } from './ui/sound';
-import { autopilotStep } from './world/autopilot';
+import { createAutopilot } from './world/autopilot';
 import { Game } from './world/game';
 
 const DEFAULT_MAP = 'sestroretsk';
@@ -95,7 +95,7 @@ async function start(): Promise<void> {
   if (game.profile.deliveries === 0) hud.openHelp();
 
   // Debug handle (handy in the browser console).
-  (window as unknown as Record<string, unknown>).courierGame = { game, renderer, hud, autopilot: autopilotStep };
+  (window as unknown as Record<string, unknown>).courierGame = { game, renderer, hud, createAutopilot };
 
   let last = performance.now();
   let acc = 0;
