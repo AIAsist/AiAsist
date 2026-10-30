@@ -69,6 +69,8 @@ export class Game {
   private readonly listeners: ((e: GameEvent) => void)[] = [];
   private offerTimer = 0;
   private savedDistance = 0;
+  /** routeStart() result, reused while the courier stays put and the target is the same. */
+  private startCache = { x: NaN, y: NaN, target: -1, node: -1 };
 
   constructor(
     readonly map: GameMapData,
@@ -303,26 +305,37 @@ export class Game {
   }
 
   /**
-   * Where the route joins the road network. The nearest node can be behind the courier, so the
-   * ends of the road segment under the courier compete too: the shortest total way to the target wins.
+   * Where the route joins the road network: the node with the shortest total way to the target
+   * (straight line to it + road distance from it) among the nodes the courier can actually reach in a
+   * straight line. The nearest node may be behind the courier, or behind a wall when the courier
+   * stands in a yard by a door.
    */
   private routeStart(field: DistanceField): number {
     const g = this.world.graph;
     const c = this.courier;
-    const candidates: number[] = [];
-    const hit = this.world.roadAt(c.x, c.y, 8);
-    if (hit) candidates.push(this.world.segA[hit.segment], this.world.segB[hit.segment]);
+    const cache = this.startCache;
+    if (cache.target === field.target && Math.hypot(cache.x - c.x, cache.y - c.y) < 1.5) return cache.node;
+
     const nearest = g.nearestNode(c.x, c.y, 3000);
-    if (nearest >= 0) candidates.push(nearest);
-    let best = nearest;
-    let bestCost = Infinity;
-    for (const n of candidates) {
-      const cost = Math.hypot(g.xs[n] - c.x, g.ys[n] - c.y) + field.cost[n];
-      if (cost < bestCost) {
-        bestCost = cost;
-        best = n;
-      }
+    const hit = this.world.roadAt(c.x, c.y, 8);
+    let best: number | undefined;
+    let fallback = nearest;
+    // Look close first; a door can be up to ~150 m from its road node, so widen once if needed.
+    for (const radius of [60, 160]) {
+      const candidates = new Set<number>(g.nodesWithin(c.x, c.y, radius));
+      if (hit) candidates.add(this.world.segA[hit.segment]).add(this.world.segB[hit.segment]);
+      if (nearest >= 0) candidates.add(nearest);
+      const scored = [...candidates]
+        .filter((n) => Number.isFinite(field.cost[n]))
+        .map((n) => ({ n, score: Math.hypot(g.xs[n] - c.x, g.ys[n] - c.y) + field.cost[n] }))
+        .sort((a, b) => a.score - b.score);
+      if (scored.length && fallback === nearest) fallback = scored[0].n;
+      // The best candidate the courier can reach directly; checked lazily, usually the first one is.
+      best = scored.find((s) => this.world.clearLine(c.x, c.y, g.xs[s.n], g.ys[s.n], COURIER_RADIUS))?.n;
+      if (best !== undefined) break;
     }
+    best ??= fallback;
+    this.startCache = { x: c.x, y: c.y, target: field.target, node: best };
     return best;
   }
 

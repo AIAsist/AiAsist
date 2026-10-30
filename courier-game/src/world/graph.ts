@@ -184,6 +184,15 @@ export class RoadGraph {
     return out;
   }
 
+  /** All nodes (main component only) within `r` metres. */
+  nodesWithin(x: number, y: number, r: number): number[] {
+    const out: number[] = [];
+    this.grid.forEachIn(x - r, y - r, x + r, y + r, (i) => {
+      if (this.component[i] === this.mainComponent && (this.xs[i] - x) ** 2 + (this.ys[i] - y) ** 2 <= r * r) out.push(i);
+    });
+    return out;
+  }
+
   /** Road class index of the edge a–b (-1 if they are not neighbours). */
   edgeClass(a: number, b: number): number {
     for (let e = this.start[a]; e < this.start[a + 1]; e++) if (this.to[e] === b) return this.edgeCls[e];

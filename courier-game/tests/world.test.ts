@@ -199,6 +199,23 @@ describe('orders and game loop', () => {
     expect(game.profile.deliveries).toBe(3);
   });
 
+  it('never routes the courier through a wall to reach the road', () => {
+    const game = new Game(map, 'wall', { rng: seeded(3), store: new MemoryStore() });
+    game.street.crowd = false;
+    game.street.police = false;
+    game.update(1 / 60, { x: 0, y: 0 });
+    // An order whose pickup is to the south, across «пр. Главный».
+    const offer = game.board.offers.find((o) => o.pickup.y < -100) ?? game.board.offers[0];
+    game.accept(offer.id);
+    // Stand in the yard right behind an apartment block on the north side of the avenue.
+    game.courier.x = -22;
+    game.courier.y = 31;
+    const p = game.route()!.points;
+    expect(game.world.clearLine(p[0], p[1], p[2], p[3], 0.9)).toBe(true);
+    for (let t = 0; t < 30; t += 1 / 60) game.update(1 / 60, autopilotStep(game));
+    expect(Math.hypot(game.courier.x + 22, game.courier.y - 31)).toBeGreaterThan(20);
+  });
+
   it('buys a vehicle only with enough money', () => {
     const game = new Game(map, 'shop', { store: new MemoryStore() });
     expect(game.chooseVehicle('bike')).toBe(false);
