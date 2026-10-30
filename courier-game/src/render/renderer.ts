@@ -8,6 +8,7 @@ import { ARRIVE_RADIUS } from '../world/game';
 import { buildCourierModel, makeIconSprite, RouteLine, TargetMarker } from './actors';
 import { buildMapLayers, type MapLayers } from './mapMeshes';
 import { COLORS } from './palette';
+import { StreetView } from './streetMeshes';
 
 export type ViewMode = '2d' | '3d';
 
@@ -25,11 +26,16 @@ export class Renderer {
   private readonly marker = new TargetMarker(ARRIVE_RADIUS);
   private readonly route = new RouteLine();
   private readonly poiIcons = new THREE.Group();
+  private readonly streetView = new StreetView();
+  private shakeTime = 0;
+  private shakeAmp = 0;
   private routeKey = '';
   private routeTimer = 0;
   private mode: ViewMode = '2d';
   /** Visible height of the 2D view in metres (zoom). */
   viewHeight = 170;
+  /** Share of the screen height covered by UI at the bottom (the orders sheet on phones). */
+  bottomInset = 0;
   private camX = 0;
   private camY = 0;
   private width = 1;
@@ -64,7 +70,7 @@ export class Renderer {
     }
     this.scene.add(this.poiIcons);
 
-    this.scene.add(this.route.mesh, this.marker.group);
+    this.scene.add(this.route.mesh, this.marker.group, this.streetView.group);
     this.courierModel = new THREE.Group();
     this.scene.add(this.courierModel);
 
@@ -85,6 +91,12 @@ export class Renderer {
     for (const o of this.layers.topDownOnly) o.visible = mode === '2d';
     this.scene.background = new THREE.Color(mode === '3d' ? COLORS.sky : COLORS.land);
     this.scene.fog = mode === '3d' ? new THREE.Fog(COLORS.sky, 350, 1600) : null;
+  }
+
+  /** Camera shake (hits, police catches); `strength` 1 is a solid bump. */
+  shake(strength: number): void {
+    this.shakeTime = 0.4;
+    this.shakeAmp = strength;
   }
 
   zoomBy(factor: number): void {
@@ -125,14 +137,15 @@ export class Renderer {
       this.courierKey = key;
     }
     const speed = Math.hypot(c.vx, c.vy);
-    // The view zooms out a little with speed.
-    const zoomOut = 1 + (speed / Math.max(vehicle.maxSpeed, 1)) * 0.25;
+    // The view zooms out a little with speed, and more during a police chase.
+    const zoomOut = (1 + (speed / Math.max(vehicle.maxSpeed, 1)) * 0.25) * (game.street.chased ? 1.15 : 1);
     const vh = this.viewHeight * zoomOut;
     // In the top-down view the courier is drawn larger than life so it reads on a phone screen.
     const scale = this.mode === '2d' ? Math.max(2.5, vh / 32) : 2.2;
     this.courierModel.scale.setScalar(scale);
     this.courierModel.position.set(c.x, c.y, 0);
-    this.courierModel.rotation.z = c.heading;
+    // Knocked over / stopped by the police: the courier wobbles.
+    this.courierModel.rotation.z = c.heading + (c.stun > 0 ? Math.sin(game.time * 25) * 0.4 : 0);
     this.courierModel.position.z = vehicle.id === 'foot' && speed > 0.5 ? Math.abs(Math.sin(game.time * 12)) * 0.08 * scale : 0;
 
     // Camera follows with a little look-ahead in the direction of travel.
@@ -142,21 +155,34 @@ export class Renderer {
     const k = Math.min(1, dt * 4);
     this.camX += (tx - this.camX) * k;
     this.camY += (ty - this.camY) * k;
+    let sx = 0;
+    let sy = 0;
+    if (this.shakeTime > 0) {
+      this.shakeTime = Math.max(0, this.shakeTime - dt);
+      const a = this.shakeAmp * vh * 0.012 * (this.shakeTime / 0.4);
+      sx = (Math.random() - 0.5) * 2 * a;
+      sy = (Math.random() - 0.5) * 2 * a;
+    }
+    // Keep the courier in the middle of the part of the screen that is not covered by the UI.
+    const camX = this.camX + sx;
+    const camY = this.camY + sy - vh * this.bottomInset * 0.5;
     if (this.mode === '2d') {
       const aspect = this.width / this.height;
       this.ortho.left = (-vh * aspect) / 2;
       this.ortho.right = (vh * aspect) / 2;
       this.ortho.top = vh / 2;
       this.ortho.bottom = -vh / 2;
-      this.ortho.position.set(this.camX, this.camY, 1500);
-      this.ortho.lookAt(this.camX, this.camY, 0);
+      this.ortho.position.set(camX, camY, 1500);
+      this.ortho.lookAt(camX, camY, 0);
       this.ortho.updateProjectionMatrix();
     } else {
       const dist = Math.max(35, vh * 0.55);
       const pitch = (52 * Math.PI) / 180;
-      this.persp.position.set(this.camX, this.camY - dist * Math.cos(pitch), dist * Math.sin(pitch));
-      this.persp.lookAt(this.camX, this.camY + dist * 0.12, 0);
+      this.persp.position.set(camX, camY - dist * Math.cos(pitch), dist * Math.sin(pitch));
+      this.persp.lookAt(camX, camY + dist * 0.12, 0);
     }
+
+    this.streetView.update(game.street, scale, game.time);
 
     // Target marker and route.
     const target = game.target();

@@ -5,6 +5,8 @@ import { SpatialGrid } from './spatialGrid';
 
 /** Route cost multiplier per road class: the courier prefers streets over footpaths a little. */
 const CLASS_COST = [1, 1, 1, 1.05, 1.15];
+/** Road classes a car can drive on (everything but footpaths). */
+const CAR_CLASS = [1, 1, 1, 1, 0];
 
 class MinHeap {
   private ids: number[] = [];
@@ -82,6 +84,12 @@ export class RoadGraph {
   private readonly to: Int32Array;
   private readonly cost: Float32Array;
   private readonly len: Float32Array;
+  /** 1 for edges a car can use. */
+  private readonly carEdge: Uint8Array;
+  /** Road class index (ROAD_CLASSES) per edge. */
+  private readonly edgeCls: Uint8Array;
+  /** 1 for nodes on at least one car road. */
+  readonly carNode: Uint8Array;
   /** Connected component id per node; `mainComponent` is the largest one. */
   readonly component: Int32Array;
   readonly mainComponent: number;
@@ -99,14 +107,15 @@ export class RoadGraph {
 
     // Undirected edges (the courier ignores one-way restrictions: arcade rules).
     const degree = new Int32Array(n + 1);
-    const edges: [number, number, number][] = [];
+    const edges: [number, number, number, number, number][] = [];
     for (const road of roads) {
       const mult = CLASS_COST[road.c] ?? 1;
+      const car = CAR_CLASS[road.c] ?? 0;
       for (let k = 0; k + 1 < road.i.length; k++) {
         const a = road.i[k];
         const b = road.i[k + 1];
         if (a === b) continue;
-        edges.push([a, b, mult]);
+        edges.push([a, b, mult, car, road.c]);
         degree[a]++;
         degree[b]++;
       }
@@ -118,16 +127,24 @@ export class RoadGraph {
     this.to = new Int32Array(m);
     this.cost = new Float32Array(m);
     this.len = new Float32Array(m);
-    for (const [a, b, mult] of edges) {
+    this.carEdge = new Uint8Array(m);
+    this.edgeCls = new Uint8Array(m);
+    this.carNode = new Uint8Array(n);
+    for (const [a, b, mult, car, cls] of edges) {
       const l = Math.hypot(this.xs[a] - this.xs[b], this.ys[a] - this.ys[b]);
       let e = fill[a]++;
       this.to[e] = b;
       this.len[e] = l;
       this.cost[e] = l * mult;
+      this.carEdge[e] = car;
+      this.edgeCls[e] = cls;
       e = fill[b]++;
       this.to[e] = a;
       this.len[e] = l;
       this.cost[e] = l * mult;
+      this.carEdge[e] = car;
+      this.edgeCls[e] = cls;
+      if (car) this.carNode[a] = this.carNode[b] = 1;
     }
 
     // Connected components (iterative DFS).
@@ -160,8 +177,21 @@ export class RoadGraph {
     for (let i = 0; i < n; i++) this.grid.insert(i, this.xs[i], this.ys[i], this.xs[i], this.ys[i]);
   }
 
-  /** Nearest node (optionally only in the main component) within `maxDist`, or -1. */
-  nearestNode(x: number, y: number, maxDist = 400, mainOnly = true): number {
+  /** Neighbouring nodes of `u` (only over car roads with `carOnly`). */
+  neighbors(u: number, carOnly = false): number[] {
+    const out: number[] = [];
+    for (let e = this.start[u]; e < this.start[u + 1]; e++) if (!carOnly || this.carEdge[e]) out.push(this.to[e]);
+    return out;
+  }
+
+  /** Road class index of the edge a–b (-1 if they are not neighbours). */
+  edgeClass(a: number, b: number): number {
+    for (let e = this.start[a]; e < this.start[a + 1]; e++) if (this.to[e] === b) return this.edgeCls[e];
+    return -1;
+  }
+
+  /** Nearest node (optionally only in the main component / on car roads) within `maxDist`, or -1. */
+  nearestNode(x: number, y: number, maxDist = 400, mainOnly = true, carOnly = false): number {
     let best = -1;
     let bestD = maxDist * maxDist;
     const cell = this.grid.cell;
@@ -169,6 +199,7 @@ export class RoadGraph {
       const r = ring * cell;
       this.grid.forEachIn(x - r, y - r, x + r, y + r, (i) => {
         if (mainOnly && this.component[i] !== this.mainComponent) return;
+        if (carOnly && !this.carNode[i]) return;
         const d = (this.xs[i] - x) ** 2 + (this.ys[i] - y) ** 2;
         if (d < bestD) {
           bestD = d;
@@ -228,8 +259,9 @@ export class RoadGraph {
   /**
    * A* shortest path between two nodes. With `maxLength`, gives up (returns null) as soon as the
    * path is certain to be longer than that — much cheaper for rejecting far-away candidates.
+   * With `carOnly`, footpaths are not used (police car).
    */
-  shortestPath(from: number, to: number, maxLength = Infinity): PathResult | null {
+  shortestPath(from: number, to: number, maxLength = Infinity, carOnly = false): PathResult | null {
     if (from < 0 || to < 0 || this.component[from] !== this.component[to]) return null;
     if (from === to) return { nodes: [from], length: 0 };
     if (!this.aG || !this.aPrev || !this.aStamp) {
@@ -266,6 +298,7 @@ export class RoadGraph {
       const gu = g[u];
       if (heap.lastKey > gu + h(u) + 1e-6) continue;
       for (let e = this.start[u]; e < this.start[u + 1]; e++) {
+        if (carOnly && !this.carEdge[e]) continue;
         const v = this.to[e];
         const c = gu + this.cost[e];
         if (seen[v] !== stamp || c < g[v]) {

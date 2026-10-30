@@ -1,7 +1,8 @@
 // DOM overlay: money, orders, timer, garage, help, toasts, off-screen target arrow, minimap.
 
 import type { Renderer } from '../render/renderer';
-import type { ActiveOrder, Game } from '../world/game';
+import { DASH_COOLDOWN, type ActiveOrder, type Game } from '../world/game';
+import type { StreetEvent } from '../world/street';
 import type { Offer } from '../world/orders';
 import { rating } from '../world/save';
 import { VEHICLES } from '../world/vehicles';
@@ -46,6 +47,7 @@ export class Hud {
           <span class="chip" title="Рейтинг (последние 20 доставок)" data-el="rating"></span>
           <span class="chip" title="Доставлено заказов" data-el="deliveries"></span>
           <span class="chip streak" title="Серия доставок вовремя: бонус к оплате" data-el="streak"></span>
+          <span class="chip wanted" title="Розыск: растёт, если сбивать людей. На 🚨🚨 выезжает машина" data-el="wanted"></span>
         </div>
         <div class="buttons">
           <button class="btn" data-act="shop" title="Гараж (G)"><span data-el="vehIcon"></span><span class="lbl">Гараж</span></button>
@@ -61,6 +63,11 @@ export class Hud {
         <div class="attribution">Карта: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© участники OpenStreetMap</a></div>
       </div>
       <div class="minimap-wrap" data-el="minimapWrap"></div>
+      <div class="chase-banner" data-el="chase">🚨 ПОГОНЯ! Оторвись от полиции</div>
+      <div class="actions">
+        <button class="action" data-act="bell" title="Звонок (пробел): пешеходы отходят"><span>🔔</span><i data-el="bellCd"></i></button>
+        <button class="action" data-act="dash" title="Рывок (Shift)"><span>⚡</span><i data-el="dashCd"></i></button>
+      </div>
       <div class="toasts" data-el="toasts"></div>
       <div class="target-arrow" data-el="arrow"><div class="arrow-head">➤</div><div class="arrow-dist" data-el="arrowDist"></div></div>
       <div class="modal-back" data-el="modal"><div class="modal" data-el="modalBody"></div></div>
@@ -117,6 +124,15 @@ export class Hud {
           this.renderPanel();
           if (this.$.modal.classList.contains('open')) this.openShop();
           break;
+        case 'bell':
+          this.sound.bell();
+          break;
+        case 'dash':
+          this.sound.dash();
+          break;
+        case 'street':
+          this.onStreet(e.event, e.amount);
+          break;
       }
     });
 
@@ -124,10 +140,48 @@ export class Hud {
     this.updateTexts();
   }
 
+  private onStreet(e: StreetEvent, amount: number): void {
+    switch (e.type) {
+      case 'hit':
+        this.sound.thud();
+        this.renderer.shake(1);
+        this.toast(
+          e.jumper
+            ? `🤕 Подставщик! Требует «компенсацию»${amount ? ` −${rub(amount)}` : ''}<br><small>Розыск растёт. Серия сгорела</small>`
+            : `💥 Сбил пешехода!${amount ? ` −${rub(amount)}` : ''}<br><small>Звони в звонок (пробел) — люди отойдут</small>`,
+          'bad',
+        );
+        break;
+      case 'dodge':
+        this.sound.coin();
+        this.toast(`😎 Увернулся от подставщика! +${rub(amount)}`, 'good');
+        break;
+      case 'whistle':
+        this.sound.whistle();
+        this.toast('👮 Полиция! Не сбавляй скорость — на ходу не схватят', 'info');
+        break;
+      case 'carChase':
+        this.toast('🚓 За тобой выехала полицейская машина! Уходи дворами — по тропинкам она не проедет', 'bad');
+        break;
+      case 'caught':
+        this.sound.fail();
+        this.renderer.shake(1.5);
+        this.toast(`🚔 Попался! Проверка документов${amount ? `, штраф −${rub(amount)}` : ''}`, 'bad');
+        break;
+      case 'escaped':
+        this.sound.coin();
+        this.toast(e.car ? `💨 Оторвался от погони! +${rub(amount)}` : `💨 Ушёл от полицейского! +${rub(amount)}`, 'good');
+        break;
+    }
+    this.updateTexts();
+  }
+
   /** Keyboard shortcuts. */
   key(code: string): void {
     if (code === 'Escape') return this.closeModal();
     if (this.paused) return;
+    if (code === 'Space') return this.action('bell');
+    if (code === 'ShiftLeft' || code === 'ShiftRight') return this.action('dash');
     const digit = /^Digit([1-9])$/.exec(code);
     if (digit && !this.game.active) {
       const offer = this.game.board.offers[Number(digit[1]) - 1];
@@ -155,6 +209,12 @@ export class Hud {
         break;
       case 'shop':
         this.openShop();
+        break;
+      case 'bell':
+        g.ring();
+        break;
+      case 'dash':
+        g.dash();
         break;
       case 'buy':
         if (!g.chooseVehicle(arg as never)) this.toast('Не хватает денег — доставь ещё пару заказов', 'bad');
@@ -252,6 +312,9 @@ export class Hud {
     this.$.deliveries.textContent = `📦 ${p.deliveries}`;
     this.$.streak.textContent = g.streak > 1 ? `🔥 ×${g.streak}` : '';
     this.$.streak.style.display = g.streak > 1 ? '' : 'none';
+    const heat = g.street.heat;
+    this.$.wanted.textContent = '🚨'.repeat(heat);
+    this.$.wanted.style.display = heat ? '' : 'none';
     this.$.vehIcon.textContent = g.vehicle.icon;
     const c = g.courier;
     const kmh = Math.round(Math.hypot(c.vx, c.vy) * 3.6);
@@ -283,6 +346,13 @@ export class Hud {
     }
     this.updateArrow();
     const g = this.game;
+    // Runner feel: chase banner + flashing screen edges, siren while the car is out, cooldown rings.
+    const chased = g.street.chased;
+    this.$.chase.classList.toggle('on', chased);
+    document.body.classList.toggle('chased', chased);
+    this.sound.siren(g.street.car !== null && !this.paused);
+    this.$.bellCd.style.height = `${(g.street.bellCooldown / 1.2) * 100}%`;
+    this.$.dashCd.style.height = `${(g.dashCooldown / DASH_COOLDOWN) * 100}%`;
     const t = g.target();
     const route = g.route();
     this.minimap.draw(g.courier, t ? { x: t.x, y: t.y, color: g.active?.stage === 'toPickup' ? '#f97316' : '#16a34a' } : null, route?.points ?? null);
@@ -393,9 +463,11 @@ export class Hud {
         <li><b>Навигатор:</b> синяя линия ведёт по улицам, стрелка у края экрана — к цели.</li>
         <li><b>Деньги:</b> быстрее — больше чаевых; доставки вовремя подряд дают бонус серии.</li>
         <li><b>Гараж:</b> велосипед, самокат, мопед — быстрее и дальние заказы.</li>
+        <li><b>Пешеходы:</b> 🔔 звонок (пробел) — люди отходят. Но есть <b>подставщики</b>: увидят тебя — над головой «!», и прыгают под колёса. Тормози или уворачивайся ⚡ рывком (Shift)!</li>
+        <li><b>Полиция:</b> патрульные стоят у маршрута и бегут за тобой. На полном ходу схватить не могут — ловят, когда притормозишь (повороты, трава, толпа). Поймали — штраф и проверка документов. Сбиваешь людей — растёт розыск 🚨, а на 🚨🚨 выезжает машина: уходи от неё дворами и тропинками.</li>
         <li><b>Масштаб:</b> колесо мыши или щипок двумя пальцами. <b>V</b> — 3D-вид (бета).</li>
       </ul>
-      <p class="muted">Статистика: доставлено ${p.deliveries}, заработано ${rub(p.earned)}, проехано ${fmtDist(p.distance)}, лучшая серия ${p.bestStreak}.</p>
+      <p class="muted">Статистика: доставлено ${p.deliveries}, заработано ${rub(p.earned)}, проехано ${fmtDist(p.distance)}, лучшая серия ${p.bestStreak}. Сбито ${p.hits}, увернулся ${p.dodges}, пойман ${p.caught}, ушёл от погони ${p.escapes}.</p>
       <p class="muted small">Карта собрана из данных OpenStreetMap (© участники OpenStreetMap, ODbL) — ${esc(new Date(map.generatedAt).toLocaleDateString('ru-RU'))}.</p>
       <div class="modal-foot">
         <button class="btn" data-act="unstuck" title="R">Застрял? На дорогу</button>

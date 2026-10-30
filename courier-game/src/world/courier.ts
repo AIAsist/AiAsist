@@ -16,10 +16,12 @@ export interface Courier {
   onRoad: boolean;
   /** Metres travelled in total. */
   odometer: number;
+  /** Seconds left without control (knocked over, stopped by the police). */
+  stun: number;
 }
 
 export function createCourier(x: number, y: number): Courier {
-  return { x, y, vx: 0, vy: 0, heading: Math.PI / 2, onRoad: true, odometer: 0 };
+  return { x, y, vx: 0, vy: 0, heading: Math.PI / 2, onRoad: true, odometer: 0, stun: 0 };
 }
 
 export interface MoveInput {
@@ -28,7 +30,8 @@ export interface MoveInput {
   y: number;
 }
 
-export function updateCourier(c: Courier, input: MoveInput, vehicle: Vehicle, world: World, dt: number): void {
+/** `boost` > 1 during a dash: higher top speed and much snappier acceleration. */
+export function updateCourier(c: Courier, input: MoveInput, vehicle: Vehicle, world: World, dt: number, boost = 1): void {
   c.onRoad = world.onRoad(c.x, c.y);
   let ix = input.x;
   let iy = input.y;
@@ -37,14 +40,14 @@ export function updateCourier(c: Courier, input: MoveInput, vehicle: Vehicle, wo
     ix /= mag;
     iy /= mag;
   }
-  const top = vehicle.maxSpeed * (c.onRoad ? 1 : vehicle.offroad);
+  const top = vehicle.maxSpeed * (c.onRoad ? 1 : vehicle.offroad) * boost;
   const tx = ix * top;
   const ty = iy * top;
   const dvx = tx - c.vx;
   const dvy = ty - c.vy;
   const dv = Math.hypot(dvx, dvy);
   // Braking is stronger than accelerating; letting go of the stick stops quickly.
-  const rate = (mag < 0.05 ? 2.2 : 1) * vehicle.accel * dt;
+  const rate = (mag < 0.05 ? 2.2 : 1) * (boost > 1 ? 3 : 1) * vehicle.accel * dt;
   if (dv <= rate) {
     c.vx = tx;
     c.vy = ty;

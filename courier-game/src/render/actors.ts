@@ -86,7 +86,9 @@ export function makeIconSprite(emoji: string, bg: string, size = 128): THREE.Spr
   ctx.lineWidth = size * 0.06;
   ctx.strokeStyle = '#ffffff';
   ctx.stroke();
-  ctx.font = `${Math.round(size * 0.5)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+  // Emoji bring their own colours; plain characters (the «!» warnings) are drawn white.
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${Math.round(size * 0.5)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(emoji, r, r + size * 0.03);

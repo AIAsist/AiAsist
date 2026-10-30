@@ -632,6 +632,108 @@ kbd {
   transition: width 0.2s;
 }
 
+/* ---------- street life: wanted level, chase, actions ---------- */
+.chip.wanted {
+  background: #fee2e2;
+  letter-spacing: 1px;
+}
+
+.chase-banner {
+  position: absolute;
+  bottom: calc(24px + var(--safe-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  background: #b91c1c;
+  color: #fff;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  display: none;
+  animation: chase-pulse 0.6s ease-in-out infinite alternate;
+}
+
+.chase-banner.on {
+  display: block;
+}
+
+@keyframes chase-pulse {
+  from {
+    background: #b91c1c;
+  }
+  to {
+    background: #1d4ed8;
+  }
+}
+
+/* Red/blue flashing screen edges while the police is after the courier. */
+#hud::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+  box-shadow: inset 0 0 60px 10px rgba(220, 38, 38, 0.55);
+}
+
+body.chased #hud::after {
+  opacity: 1;
+  animation: chase-edges 0.6s steps(1) infinite;
+}
+
+@keyframes chase-edges {
+  0% {
+    box-shadow: inset 0 0 60px 10px rgba(220, 38, 38, 0.55);
+  }
+  50% {
+    box-shadow: inset 0 0 60px 10px rgba(37, 99, 235, 0.55);
+  }
+}
+
+.actions {
+  position: absolute;
+  right: 220px;
+  bottom: calc(14px + var(--safe-bottom));
+  display: flex;
+  gap: 12px;
+}
+
+.action {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  font-size: 28px;
+  cursor: pointer;
+  overflow: hidden;
+  padding: 0;
+  touch-action: manipulation;
+}
+
+.action span {
+  position: relative;
+  z-index: 1;
+}
+
+.action:active {
+  transform: scale(0.94);
+}
+
+/* Cooldown: a dark fill that drains from the top. */
+.action i {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0;
+  background: rgba(17, 24, 39, 0.35);
+}
+
 /* ---------- phones ---------- */
 @media (max-width: 720px) {
   .btn .lbl {
@@ -672,8 +774,40 @@ kbd {
     top: calc(100px + var(--safe-top));
   }
 
+  .actions {
+    right: 10px;
+    bottom: calc(43% + 14px + var(--safe-bottom));
+    flex-direction: column;
+  }
+
+  /* Right under the top bar. */
+  .chase-banner {
+    bottom: auto;
+    top: calc(56px + var(--safe-top));
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
   .toasts {
     top: auto;
-    bottom: calc(46% + var(--safe-bottom));
+    left: 10px;
+    transform: none;
+    bottom: calc(43% + 64px + var(--safe-bottom));
+    width: calc(100% - 100px);
+    align-items: flex-start;
+  }
+
+  /* One row at the top: the delivery count lives in the help screen on phones. */
+  .chip[data-el='deliveries'] {
+    display: none;
+  }
+
+  .buttons {
+    flex-wrap: nowrap;
+    gap: 5px;
+  }
+
+  .topbar .btn {
+    padding: 7px 9px;
   }
 }

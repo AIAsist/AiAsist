@@ -13,10 +13,29 @@ export interface Profile {
   earned: number;
   distance: number;
   bestStreak: number;
+  /** Street incidents: people knocked over, police catches, escapes, dodged jumpers. */
+  hits: number;
+  caught: number;
+  escapes: number;
+  dodges: number;
 }
 
 export function newProfile(): Profile {
-  return { version: 1, money: 0, owned: ['foot'], vehicle: 'foot', stars: [], deliveries: 0, earned: 0, distance: 0, bestStreak: 0 };
+  return {
+    version: 1,
+    money: 0,
+    owned: ['foot'],
+    vehicle: 'foot',
+    stars: [],
+    deliveries: 0,
+    earned: 0,
+    distance: 0,
+    bestStreak: 0,
+    hits: 0,
+    caught: 0,
+    escapes: 0,
+    dodges: 0,
+  };
 }
 
 export interface KeyValueStore {

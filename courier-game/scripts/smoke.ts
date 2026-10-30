@@ -1,6 +1,7 @@
 // End-to-end smoke test of the built site (run after `vite build`): opens the game in headless
-// Chromium and plays several orders with an autopilot that follows the navigation route on the real
-// map. Fails on page errors, missing orders or a courier that gets stuck (and logs where and why).
+// Chromium and plays several orders with the «decent player» autopilot (src/world/autopilot.ts) on the
+// real map, street life included. Fails on page errors, missing orders or a courier that gets stuck
+// (and logs where and why).
 //
 //   npm run smoke                     — map "sestroretsk"
 //   npm run smoke -- --map=test-town  — another map from public/data
@@ -35,6 +36,8 @@ interface SmokeResult {
   drops: number;
   orders: OrderRun[];
   money: number;
+  /** Street life seen on the way: people knocked over, police catches and escapes, dodges. */
+  street: { hits: number; caught: number; escapes: number; dodges: number; pedestrians: number };
 }
 
 async function main() {
@@ -61,29 +64,13 @@ async function main() {
 
     const result: SmokeResult = await page.evaluate(
       ({ map, orders }) => {
-        const { game } = (window as any).courierGame;
+        const { game, autopilot } = (window as any).courierGame;
         const world = game.world;
         const c = game.courier;
         const o = world.map.origin;
         const R = 6378137;
         const latLon = (x: number, y: number) =>
           `${(o.lat + (y / R) * (180 / Math.PI)).toFixed(6)},${(o.lon + (x / (R * Math.cos((o.lat * Math.PI) / 180))) * (180 / Math.PI)).toFixed(6)}`;
-        /** Autopilot: steer towards a point ~6 m ahead along the navigation route. */
-        const steer = () => {
-          const p = game.route()!.points as number[];
-          let tx = p[p.length - 2];
-          let ty = p[p.length - 1];
-          let along = 0;
-          for (let i = 2; i < p.length; i += 2) {
-            along += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]);
-            if (along > 6) {
-              tx = p[i];
-              ty = p[i + 1];
-              break;
-            }
-          }
-          return { tx, ty };
-        };
         const runs: OrderRun[] = [];
         for (let k = 0; k < orders; k++) {
           for (let wait = 0; wait < 600 && !game.board.offers.length; wait++) game.update(1 / 60, { x: 0, y: 0 });
@@ -95,9 +82,7 @@ async function main() {
           let onRoad = 0;
           let steps = 0;
           for (; steps < 60 * 600 && game.active; steps++) {
-            const { tx, ty } = steer();
-            const m = Math.hypot(tx - c.x, ty - c.y) || 1;
-            game.update(1 / 60, { x: (tx - c.x) / m, y: (ty - c.y) / m });
+            game.update(1 / 60, autopilot(game));
             if (c.onRoad) onRoad++;
             if (steps % (60 * 60) === 0) trail.push(latLon(c.x, c.y));
           }
@@ -105,7 +90,10 @@ async function main() {
           run.onRoadShare = Math.round((onRoad / Math.max(1, steps)) * 100) / 100;
           run.delivered = !game.active;
           if (game.active) {
-            const { tx, ty } = steer();
+            // Where the navigator points (a few metres ahead) and what is in the way.
+            const p = game.route()!.points as number[];
+            const tx = p[Math.min(4, p.length - 2)];
+            const ty = p[Math.min(5, p.length - 1)];
             const d = Math.hypot(tx - c.x, ty - c.y);
             let blockedBy = 'nothing';
             for (let t = 0.5; t <= d; t += 0.5) {
@@ -132,7 +120,15 @@ async function main() {
           }
           runs.push(run);
         }
-        return { map, pickups: game.board.pickups.length, drops: game.board.drops.length, orders: runs, money: game.profile.money };
+        const p = game.profile;
+        return {
+          map,
+          pickups: game.board.pickups.length,
+          drops: game.board.drops.length,
+          orders: runs,
+          money: p.money,
+          street: { hits: p.hits, caught: p.caught, escapes: p.escapes, dodges: p.dodges, pedestrians: game.street.pedestrians.length },
+        };
       },
       { map: mapId, orders: ORDERS },
     );

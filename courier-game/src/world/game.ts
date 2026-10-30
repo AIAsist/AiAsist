@@ -15,12 +15,19 @@ import {
   type Rng,
 } from './orders';
 import { SaveSlot, type KeyValueStore, type Profile } from './save';
+import { StreetLife, type StreetEvent } from './street';
 import { VEHICLES, vehicleById, type Vehicle, type VehicleId } from './vehicles';
 import { World } from './world';
 
 /** How close (metres) the courier has to get to a pickup/drop point. */
 export const ARRIVE_RADIUS = 12;
 const STAR_HISTORY = 20;
+/** Dash («рывок»): duration, cooldown and speed multiplier. */
+export const DASH_TIME = 0.45;
+export const DASH_COOLDOWN = 3.5;
+const DASH_BOOST = 1.7;
+const HIT_STUN = 1.2;
+const CAUGHT_STUN = 3;
 
 export interface ActiveOrder extends Offer {
   stage: 'toPickup' | 'toDrop';
@@ -34,7 +41,11 @@ export type GameEvent =
   | { type: 'delivered'; order: ActiveOrder; result: DeliveryResult; streak: number }
   | { type: 'cancelled'; order: ActiveOrder }
   | { type: 'offers' }
-  | { type: 'vehicle'; vehicle: Vehicle; bought: boolean };
+  | { type: 'vehicle'; vehicle: Vehicle; bought: boolean }
+  | { type: 'dash' }
+  | { type: 'bell' }
+  /** Street incident; `amount` is the money actually taken (fines) or given (bonuses). */
+  | { type: 'street'; event: StreetEvent; amount: number };
 
 export interface GameOptions {
   rng?: Rng;
@@ -46,7 +57,11 @@ export class Game {
   readonly courier: Courier;
   readonly board: OrderBoard;
   readonly profile: Profile;
+  readonly street: StreetLife;
   active: ActiveOrder | null = null;
+  /** Seconds left of the current dash, and until the next one is available. */
+  dashTime = 0;
+  dashCooldown = 0;
   streak = 0;
   time = 0;
   private field: DistanceField | null = null;
@@ -67,6 +82,8 @@ export class Game {
     const spot = this.world.findFreeSpot(map.spawn.x, map.spawn.y, COURIER_RADIUS);
     this.courier = createCourier(spot.x, spot.y);
     this.board = new OrderBoard(this.world, buildPickups(this.world), buildDrops(this.world), opts.rng);
+    this.street = new StreetLife(this.world, this.board.pickups, opts.rng);
+    this.street.on((e) => this.onStreet(e));
   }
 
   on(fn: (e: GameEvent) => void): void {
@@ -84,8 +101,19 @@ export class Game {
   update(dt: number, input: MoveInput): void {
     this.time += dt;
     const c = this.courier;
-    updateCourier(c, input, this.vehicle, this.world, dt);
+    if (c.stun > 0) {
+      c.stun = Math.max(0, c.stun - dt);
+      input = { x: 0, y: 0 };
+    }
+    this.dashCooldown = Math.max(0, this.dashCooldown - dt);
+    let boost = 1;
+    if (this.dashTime > 0) {
+      this.dashTime = Math.max(0, this.dashTime - dt);
+      boost = DASH_BOOST;
+    }
+    updateCourier(c, input, this.vehicle, this.world, dt, boost);
     this.profile.distance = this.savedDistance + c.odometer;
+    this.street.update(dt, c, this.vehicle, () => this.route()?.points ?? null);
 
     if (!this.active) {
       this.offerTimer -= dt;
@@ -180,6 +208,62 @@ export class Game {
     this.persist();
     this.emit({ type: 'vehicle', vehicle: v, bought });
     return true;
+  }
+
+  /** «Рывок»: a short burst of speed to dodge a jumper or break away from the police. */
+  dash(): boolean {
+    if (this.dashCooldown > 0 || this.courier.stun > 0) return false;
+    this.dashTime = DASH_TIME;
+    this.dashCooldown = DASH_COOLDOWN;
+    this.emit({ type: 'dash' });
+    return true;
+  }
+
+  /** Bell / horn: ordinary pedestrians step aside (jumpers do not). */
+  ring(): boolean {
+    if (!this.street.ring(this.courier)) return false;
+    this.emit({ type: 'bell' });
+    return true;
+  }
+
+  private onStreet(e: StreetEvent): void {
+    const p = this.profile;
+    const c = this.courier;
+    let amount = 0;
+    switch (e.type) {
+      case 'hit':
+        amount = Math.min(p.money, e.fine);
+        p.money -= amount;
+        p.hits++;
+        c.stun = HIT_STUN;
+        c.vx *= -0.3;
+        c.vy *= -0.3;
+        this.streak = 0;
+        break;
+      case 'caught':
+        amount = Math.min(p.money, e.fine);
+        p.money -= amount;
+        p.caught++;
+        c.stun = CAUGHT_STUN;
+        c.vx = 0;
+        c.vy = 0;
+        this.dashTime = 0;
+        break;
+      case 'dodge':
+        amount = e.bonus;
+        p.money += amount;
+        p.earned += amount;
+        p.dodges++;
+        break;
+      case 'escaped':
+        amount = e.bonus;
+        p.money += amount;
+        p.earned += amount;
+        p.escapes++;
+        break;
+    }
+    if (e.type === 'hit' || e.type === 'caught') this.persist();
+    this.emit({ type: 'street', event: e, amount });
   }
 
   /** Teleports the courier to the nearest free spot on a road (if stuck somewhere). */

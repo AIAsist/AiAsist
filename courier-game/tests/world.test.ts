@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { POI_KINDS } from '../src/data/mapFormat';
 import { convertOsm } from '../src/osm/convert';
+import { autopilotStep } from '../src/world/autopilot';
 import { updateCourier, createCourier } from '../src/world/courier';
 import { Game, ARRIVE_RADIUS } from '../src/world/game';
 import { pointInPolygon } from '../src/world/geometry';
@@ -187,28 +188,15 @@ describe('orders and game loop', () => {
     expect(reloaded.profile.money).toBe(game.profile.money);
   });
 
-  it('lets an autopilot that follows the navigation route deliver an order', () => {
+  it('lets an autopilot that follows the navigator (and minds the street) deliver orders', () => {
     const game = new Game(map, 'route', { rng: seeded(7), store: new MemoryStore() });
-    game.update(1 / 60, { x: 0, y: 0 });
-    game.accept(game.board.offers[0].id);
-    const c = game.courier;
-    // Follow the route like a player would: steer at a point a few metres ahead.
-    for (let step = 0; step < 60 * 600 && game.active; step++) {
-      const p = game.route()!.points;
-      let [tx, ty] = [p[p.length - 2], p[p.length - 1]];
-      let along = 0;
-      for (let i = 2; i < p.length; i += 2) {
-        along += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]);
-        if (along > 6) {
-          [tx, ty] = [p[i], p[i + 1]];
-          break;
-        }
-      }
-      const dxy = Math.hypot(tx - c.x, ty - c.y) || 1;
-      game.update(1 / 60, { x: (tx - c.x) / dxy, y: (ty - c.y) / dxy });
+    for (let k = 0; k < 3; k++) {
+      for (let w = 0; w < 600 && !game.board.offers.length; w++) game.update(1 / 60, { x: 0, y: 0 });
+      game.accept(game.board.offers[0].id);
+      for (let step = 0; step < 60 * 600 && game.active; step++) game.update(1 / 60, autopilotStep(game));
+      expect(game.active).toBeNull();
     }
-    expect(game.active).toBeNull();
-    expect(game.profile.deliveries).toBe(1);
+    expect(game.profile.deliveries).toBe(3);
   });
 
   it('buys a vehicle only with enough money', () => {

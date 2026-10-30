@@ -5,6 +5,7 @@ import { Hud } from './ui/hud';
 import { Input } from './ui/input';
 import { Minimap } from './ui/minimap';
 import { Sound } from './ui/sound';
+import { autopilotStep } from './world/autopilot';
 import { Game } from './world/game';
 
 const DEFAULT_MAP = 'sestroretsk';
@@ -78,6 +79,10 @@ async function start(): Promise<void> {
   const minimap = new Minimap(document.createElement('canvas'), map, window.innerWidth < 720 ? 120 : 190);
   const hud = new Hud($('hud'), game, renderer, sound, minimap);
   const input = new Input($('game'), $('stick'));
+  // On phones the orders sheet covers the bottom of the screen (see styles.css).
+  const updateInset = () => (renderer.bottomInset = window.innerWidth <= 720 ? 0.42 : 0);
+  updateInset();
+  window.addEventListener('resize', updateInset);
   input.onZoom = (f) => renderer.zoomBy(f);
   input.onKey = (code) => {
     sound.unlock();
@@ -90,7 +95,7 @@ async function start(): Promise<void> {
   if (game.profile.deliveries === 0) hud.openHelp();
 
   // Debug handle (handy in the browser console).
-  (window as unknown as Record<string, unknown>).courierGame = { game, renderer, hud };
+  (window as unknown as Record<string, unknown>).courierGame = { game, renderer, hud, autopilot: autopilotStep };
 
   let last = performance.now();
   let acc = 0;
